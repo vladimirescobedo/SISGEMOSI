@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    th.sortable-header {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.2s ease;
+    }
+    th.sortable-header:hover {
+        background-color: #2c3e50 !important;
+        color: #ffc107 !important;
+    }
+</style>
+
+<!-- Cabecera -->
+<div class="card shadow-sm border-0 mb-3 bg-white no-print">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h4 class="fw-bold mb-1 text-dark"><i class="bi bi-people-gear me-2 text-primary"></i>Gestión de Usuarios del Sistema</h4>
+            <p class="text-muted mb-0 small">Administración de credenciales, roles y permisos de acceso.</p>
+        </div>
+        <button class="btn btn-primary fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoUsuario">
+            <i class="bi bi-person-plus-fill me-1"></i> Crear Nuevo Usuario
+        </button>
+    </div>
+</div>
+
+<!-- Barra de Búsqueda y Ordenamiento -->
+<div class="card shadow-sm border-0 p-3 mb-3 bg-white no-print">
+    <div class="row g-3 align-items-center">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text bg-light"><i class="bi bi-search text-primary"></i></span>
+                <input type="text" id="buscadorUsuarios" class="form-control" placeholder="Buscar por nombre, usuario, rol..." onkeyup="filtrarTablaUsuarios()">
+            </div>
+        </div>
+        <div class="col-md-6 text-md-end">
+            <div class="d-flex flex-wrap justify-content-md-end gap-2">
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="ordenarManualUsuarios(1, 'asc')">
+                    <i class="bi bi-sort-alpha-down me-1"></i> Nombre (A ➔ Z)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="ordenarManualUsuarios(1, 'desc')">
+                    <i class="bi bi-sort-alpha-up-alt me-1"></i> Nombre (Z ➔ A)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" onclick="ordenarManualUsuarios(3, 'asc')">
+                    <i class="bi bi-shield me-1"></i> Por Rol
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabla de Usuarios -->
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>Cuentas Registradas</h5>
+        <small class="text-white-50"><i class="bi bi-cursor me-1"></i>Haga clic en los encabezados para ordenar</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-striped align-middle mb-0" id="tablaUsuarios">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(0)" style="width: 10%;">ID <span id="sortUs0">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(1)" style="width: 30%;">Nombre Completo <span id="sortUs1">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(2)" style="width: 20%;">Usuario (Login) <span id="sortUs2">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(3)" style="width: 15%;">Rol / Nivel <span id="sortUs3">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(4)" style="width: 15%;">Fecha Creación <span id="sortUs4">↕</span></th>
+                        <th style="width: 10%;" class="text-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tbodyUsuarios">
+                    {% for u in usuarios %}
+                    <tr>
+                        <td><strong>#{{ u.id }}</strong></td>
+                        <td class="fw-bold">{{ u.nombre_completo }}</td>
+                        <td><span class="badge bg-secondary fs-6">{{ u.usuario }}</span></td>
+                        <td>
+                            {% if u.rol == 'ADMIN' %}
+                                <span class="badge bg-danger px-3 py-2"><i class="bi bi-shield-fill me-1"></i> ADMINISTRADOR</span>
+                            {% else %}
+                                <span class="badge bg-primary px-3 py-2"><i class="bi bi-person me-1"></i> USUARIO OPERADOR</span>
+                            {% endif %}
+                        </td>
+                        <td><small class="text-muted">{{ u.creado_el }}</small></td>
+                        <td class="text-center">
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-outline-warning" title="Editar Usuario"
+                                    onclick="abrirModalEditarUsuario('{{ u.id }}', '{{ u.nombre_completo }}', '{{ u.usuario }}', '{{ u.rol }}')">
+                                    <i class="bi bi-pencil-square"></i>
+                                </button>
+                                {% if u.id != session.get('usuario_id') %}
+                                <button class="btn btn-sm btn-outline-danger" title="Eliminar Usuario"
+                                    onclick="abrirModalEliminarUsuario('{{ u.id }}', '{{ u.nombre_completo }} ({{ u.usuario }})')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: NUEVO USUARIO -->
+<div class="modal fade" id="modalNuevoUsuario" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="/usuarios/nuevo" method="POST" class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-person-plus-fill me-2"></i>Crear Nuevo Usuario</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <div class="col-12">
+                    <label class="form-label fw-bold">Nombre Completo *</label>
+                    <input type="text" name="nombre_completo" class="form-control" required placeholder="Ej: Juan Pérez Morales">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Nombre de Usuario (Login) *</label>
+                    <input type="text" name="usuario" class="form-control" required placeholder="Ej: jperez">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Contraseña *</label>
+                    <input type="password" name="password" class="form-control" required placeholder="••••••••••••">
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold">Rol / Permisos</label>
+                    <select name="rol" class="form-select">
+                        <option value="USUARIO">USUARIO OPERADOR (Sin Permiso de Eliminar)</option>
+                        <option value="ADMIN">ADMINISTRADOR (Control Total)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary fw-bold">Guardar Usuario</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: EDITAR USUARIO -->
+<div class="modal fade" id="modalEditarUsuario" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="/usuarios/editar" method="POST" class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Editar Usuario</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <input type="hidden" name="usuario_id" id="edit_usuario_id">
+                <div class="col-12">
+                    <label class="form-label fw-bold">Nombre Completo *</label>
+                    <input type="text" name="nombre_completo" id="edit_usuario_nombre" class="form-control" required>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Nueva Contraseña (dejar en blanco para conservar la actual)</label>
+                    <input type="password" name="password" class="form-control" placeholder="Nueva contraseña opcional">
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold">Rol / Permisos</label>
+                    <select name="rol" id="edit_usuario_rol" class="form-select">
+                        <option value="USUARIO">USUARIO OPERADOR</option>
+                        <option value="ADMIN">ADMINISTRADOR</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-warning fw-bold">Actualizar Cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: ELIMINAR USUARIO -->
+<div class="modal fade" id="modalEliminarUsuario" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="formEliminarUsuario" method="POST" class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirmar Eliminación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>¿Está seguro de eliminar la cuenta del usuario <strong id="eliminar_user_nombre"></strong>?</p>
+                <small class="text-danger">El usuario perderá de inmediato el acceso al sistema.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-danger fw-bold">Sí, Eliminar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+var ordenUsuarios = {};
+
+function filtrarTablaUsuarios() {
+    let txt = document.getElementById('buscadorUsuarios').value.toLowerCase().trim();
+    let filas = document.querySelectorAll('#tbodyUsuarios tr');
+
+    filas.forEach(f => {
+        let textoTotal = f.innerText.toLowerCase();
+        f.style.display = (txt === '' || textoTotal.includes(txt)) ? '' : 'none';
+    });
+}
+
+function ordenarColumnaUsuarios(colIdx) {
+    let dir = ordenUsuarios[colIdx] === 'asc' ? 'desc' : 'asc';
+    ordenarManualUsuarios(colIdx, dir);
+}
+
+function ordenarManualUsuarios(colIdx, dir) {
+    ordenUsuarios = {};
+    ordenUsuarios[colIdx] = dir;
+
+    for (let i = 0; i <= 4; i++) {
+        let el = document.getElementById('sortUs' + i);
+        if (el) {
+            if (i === colIdx) {
+                el.innerText = dir === 'asc' ? ' ▲' : ' ▼';
+                el.style.color = '#ffc107';
+            } else {
+                el.innerText = ' ↕';
+                el.style.color = 'rgba(255,255,255,0.5)';
+            }
+        }
+    }
+
+    const tbody = document.getElementById('tbodyUsuarios');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length === 0) return;
+
+    rows.sort((rowA, rowB) => {
+        let cellA = rowA.children[colIdx] ? rowA.children[colIdx].innerText.trim() : '';
+        let cellB = rowB.children[colIdx] ? rowB.children[colIdx].innerText.trim() : '';
+
+        let numA = parseFloat(cellA.replace(/[^0-9.-]+/g, ''));
+        let numB = parseFloat(cellB.replace(/[^0-9.-]+/g, ''));
+        let esNumA = !isNaN(numA) && cellA.match(/^#?[0-9.-]+$/);
+        let esNumB = !isNaN(numB) && cellB.match(/^#?[0-9.-]+$/);
+
+        if (esNumA && esNumB) {
+            return dir === 'asc' ? numA - numB : numB - numA;
+        }
+
+        return dir === 'asc'
+            ? cellA.localeCompare(cellB, 'es', { numeric: true, sensitivity: 'base' })
+            : cellB.localeCompare(cellA, 'es', { numeric: true, sensitivity: 'base' });
+    });
+
+    tbody.innerHTML = '';
+    rows.forEach(r => tbody.appendChild(r));
+    filtrarTablaUsuarios();
+}
+
+function abrirModalEditarUsuario(id, nombre, usuario, rol) {
+    document.getElementById('edit_usuario_id').value = id;
+    document.getElementById('edit_usuario_nombre').value = nombre;
+    document.getElementById('edit_usuario_rol').value = rol;
+    new bootstrap.Modal(document.getElementById('modalEditarUsuario')).show();
+}
+
+function abrirModalEliminarUsuario(id, nombre) {
+    document.getElementById('formEliminarUsuario').action = '/usuarios/eliminar/' + id;
+    document.getElementById('eliminar_user_nombre').innerText = nombre;
+    new bootstrap.Modal(document.getElementById('modalEliminarUsuario')).show();
+}
+</script>
+{% endblock %}

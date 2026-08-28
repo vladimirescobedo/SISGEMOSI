@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+    th.sortable-header {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.2s ease;
+    }
+    th.sortable-header:hover {
+        background-color: #2c3e50 !important;
+        color: #ffc107 !important;
+    }
+</style>
+
+<!-- Tarjetas Estadísticas -->
+<div class="row g-3 mb-4 no-print">
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3 text-primary fs-3">
+                    <i class="bi bi-laptop"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Total Bienes</h6>
+                    <h3 class="fw-bold mb-0">{{ total_equipos }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3 text-success fs-3">
+                    <i class="bi bi-check-circle-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">En Almacén</h6>
+                    <h3 class="fw-bold mb-0 text-success">{{ total_almacen }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3 text-danger fs-3">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">En Préstamo</h6>
+                    <h3 class="fw-bold mb-0 text-danger">{{ total_prestamo }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-secondary bg-opacity-10 p-3 me-3 text-secondary fs-3">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Total Movimientos</h6>
+                    <h3 class="fw-bold mb-0 text-secondary">{{ total_historico }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FILTROS TEMPORALES Y DE ESTADO -->
+<div class="card shadow-sm border-0 mb-3 bg-white no-print">
+    <div class="card-body">
+        
+        <!-- Fila 1: Filtros de Período de Tiempo -->
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 pb-3 border-bottom">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-bold small text-muted"><i class="bi bi-calendar-range-fill text-primary me-1"></i> Período de Tiempo:</span>
+                <div class="btn-group" role="group">
+                    <a href="/reportes?categoria={{ categoria }}&estado={{ filtro_estado }}&periodo=HOY" class="btn btn-sm {% if periodo == 'HOY' %}btn-primary fw-bold{% else %}btn-outline-primary{% endif %}">
+                        <i class="bi bi-calendar-day me-1"></i> Hoy
+                    </a>
+                    <a href="/reportes?categoria={{ categoria }}&estado={{ filtro_estado }}&periodo=SEMANA" class="btn btn-sm {% if periodo == 'SEMANA' %}btn-primary fw-bold{% else %}btn-outline-primary{% endif %}">
+                        <i class="bi bi-calendar-week me-1"></i> Esta Semana
+                    </a>
+                    <a href="/reportes?categoria={{ categoria }}&estado={{ filtro_estado }}&periodo=MES" class="btn btn-sm {% if periodo == 'MES' %}btn-primary fw-bold{% else %}btn-outline-primary{% endif %}">
+                        <i class="bi bi-calendar-month me-1"></i> Este Mes
+                    </a>
+                    <a href="/reportes?categoria={{ categoria }}&estado={{ filtro_estado }}&periodo=TODOS" class="btn btn-sm {% if periodo == 'TODOS' %}btn-dark fw-bold{% else %}btn-outline-dark{% endif %}">
+                        <i class="bi bi-clock-history me-1"></i> Todo el Historial
+                    </a>
+                </div>
+            </div>
+
+            <!-- Rango Personalizado -->
+            <form action="/reportes" method="GET" class="d-inline-flex align-items-center gap-2">
+                <input type="hidden" name="estado" value="{{ filtro_estado }}">
+                <input type="hidden" name="categoria" value="{{ categoria }}">
+                <input type="hidden" name="periodo" value="RANGO">
+                <span class="small text-muted">Desde:</span>
+                <input type="date" name="desde" class="form-control form-control-sm" value="{{ f_desde }}" required>
+                <span class="small text-muted">Hasta:</span>
+                <input type="date" name="hasta" class="form-control form-control-sm" value="{{ f_hasta }}" required>
+                <button type="submit" class="btn btn-sm btn-secondary fw-bold">Filtrar</button>
+            </form>
+        </div>
+
+        <!-- Fila 2: Pestañas de Estado y Exportación -->
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3 pb-3 border-bottom">
+            <label for="filtroCategoria" class="fw-bold small text-muted">Categoría:</label>
+            <select id="filtroCategoria" class="form-select form-select-sm" style="width: 220px;" onchange="cambiarCategoriaReporte(this.value)">
+                <option value="TODAS" {% if categoria == 'TODAS' %}selected{% endif %}>Todos los equipos</option>
+                <option value="MOVILES" {% if categoria == 'MOVILES' %}selected{% endif %}>Móviles / celulares</option>
+                <option value="TOKENS" {% if categoria == 'TOKENS' %}selected{% endif %}>Tokens</option>
+                <option value="INFORMATICOS" {% if categoria == 'INFORMATICOS' %}selected{% endif %}>Informáticos</option>
+            </select>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="btn-group flex-wrap" role="group">
+                <a href="/reportes?categoria={{ categoria }}&estado=TODOS&periodo={{ periodo }}&desde={{ f_desde }}&hasta={{ f_hasta }}" class="btn {% if filtro_estado == 'TODOS' %}btn-dark{% else %}btn-outline-dark{% endif %} btn-sm">
+                    Todos los Movimientos
+                </a>
+                <a href="/reportes?categoria={{ categoria }}&estado=EN_PRESTAMO&periodo={{ periodo }}&desde={{ f_desde }}&hasta={{ f_hasta }}" class="btn {% if filtro_estado == 'EN_PRESTAMO' %}btn-danger{% else %}btn-outline-danger{% endif %} btn-sm">
+                    Actualmente en Préstamo
+                </a>
+                <a href="/reportes?categoria={{ categoria }}&estado=DEVUELTOS&periodo={{ periodo }}&desde={{ f_desde }}&hasta={{ f_hasta }}" class="btn {% if filtro_estado == 'DEVUELTOS' %}btn-success{% else %}btn-outline-success{% endif %} btn-sm">
+                    Historial Devueltos
+                </a>
+                <a href="/reportes?categoria={{ categoria }}&estado=EN_ALMACEN&periodo={{ periodo }}" class="btn {% if filtro_estado == 'EN_ALMACEN' %}btn-primary{% else %}btn-outline-primary{% endif %} btn-sm">
+                    Disponibles en Almacén
+                </a>
+            </div>
+
+            <div class="d-flex gap-2">
+                {% if filtro_estado != 'EN_ALMACEN' %}
+                <a href="{{ url_for('exportar_reporte_excel', categoria=categoria, estado=filtro_estado, periodo=periodo, desde=f_desde, hasta=f_hasta) }}" class="btn btn-success btn-sm fw-bold">
+                    <i class="bi bi-file-earmark-excel me-1"></i> Exportar a Excel
+                </a>
+                {% endif %}
+                <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-printer me-1"></i> Imprimir / PDF
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Buscador y Ordenamiento de Reporte -->
+<div class="card shadow-sm border-0 p-3 mb-3 bg-white no-print">
+    <div class="row g-3 align-items-center">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text bg-light"><i class="bi bi-search text-primary"></i></span>
+                <input type="text" id="buscadorReporte" class="form-control" placeholder="Buscar en el reporte por código, custodio, DNI, descripción..." onkeyup="filtrarTablaReporte()">
+            </div>
+        </div>
+        <div class="col-md-6 text-md-end">
+            <div class="d-flex flex-wrap justify-content-md-end gap-2">
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="ordenarManualReporte(2, 'asc')">
+                    <i class="bi bi-sort-alpha-down me-1"></i> Custodio (A ➔ Z)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="ordenarManualReporte(2, 'desc')">
+                    <i class="bi bi-sort-alpha-up-alt me-1"></i> Custodio (Z ➔ A)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" onclick="ordenarManualReporte(3, 'desc')">
+                    <i class="bi bi-calendar-event me-1"></i> Fecha Salida (Más Reciente)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabla de Reporte con Trazabilidad y Duración -->
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0">
+            <i class="bi bi-clock-history me-2"></i>
+            Trazabilidad y Control de Préstamos
+            {% if periodo == 'HOY' %}(Día de Hoy){% elif periodo == 'SEMANA' %}(Últimos 7 días){% elif periodo == 'MES' %}(Mes Actual){% elif periodo == 'RANGO' %}({{ f_desde }} al {{ f_hasta }}){% endif %}
+        </h5>
+        <small class="text-white-50"><i class="bi bi-cursor me-1"></i>Haga clic en los encabezados para ordenar</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            {% if filtro_estado == 'EN_ALMACEN' %}
+            <table class="table table-hover table-striped align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(0)" style="width: 12%;">Cód. Margesí <span id="sortRep0">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(1)" style="width: 14%;">Categoría <span id="sortRep1">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(2)" style="width: 24%;">Descripción <span id="sortRep2">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(3)" style="width: 16%;">Marca / Modelo <span id="sortRep3">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(4)" style="width: 14%;">N° Serie / Medidas <span id="sortRep4">↕</span></th>
+                        <th style="width: 10%;">Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="tbodyReportes">
+                    {% for eq in equipos_almacen %}
+                    <tr>
+                        <td><span class="badge bg-secondary fs-6">{{ eq.codigo_margesi }}</span></td>
+                        <td><span class="badge bg-primary bg-opacity-10 text-primary">{{ eq.categoria }}</span></td>
+                        <td class="fw-bold">{{ eq.descripcion }}</td>
+                        <td>{{ eq.marca }} {{ eq.modelo }}</td>
+                        <td><small class="fw-bold">{{ eq.serie_medidas or '-' }}</small></td>
+                        <td><span class="badge badge-almacen text-white px-3 py-2">EN ALMACÉN</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <table class="table table-hover table-striped align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(0)" style="width: 10%;">Cód. Margesí <span id="sortRep0">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(1)" style="width: 18%;">Bien / Detalle <span id="sortRep1">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(2)" style="width: 18%;">Custodio / Trabajador <span id="sortRep2">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(3)" style="width: 11%;">Fecha Salida <span id="sortRep3">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(4)" style="width: 11%;">Fecha Retorno <span id="sortRep4">↕</span></th>
+                        <th style="width: 10%;">Tiempo de Uso</th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(6)" style="width: 10%;">Estado <span id="sortRep6">↕</span></th>
+                        <th style="width: 12%;">Observaciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tbodyReportes">
+                    {% for m in movimientos %}
+                    <tr>
+                        <td><span class="badge bg-secondary fs-6">{{ m.codigo_margesi }}</span></td>
+                        <td>
+                            <div class="fw-bold">{{ m.descripcion }}</div>
+                            <small class="text-muted">{{ m.marca }} {{ m.modelo }}</small>
+                        </td>
+                        <td>
+                            <div class="fw-bold">{{ m.trabajador_nombre }}</div>
+                            <small class="text-muted">DNI: {{ m.trabajador_dni }} | {{ m.trabajador_cargo }}</small>
+                        </td>
+                        <td><small class="fw-bold text-dark">{{ m.fecha_prestamo }}</small></td>
+                        <td>
+                            {% if m.fecha_devolucion %}
+                                <small class="text-success fw-bold">{{ m.fecha_devolucion }}</small>
+                            {% else %}
+                                <span class="badge bg-warning text-dark">En Custodia</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border">{{ calcular_duracion(m.fecha_prestamo, m.fecha_devolucion) }}</span>
+                        </td>
+                        <td>
+                            {% if m.estado_prestamo == 'ACTIVO' %}
+                                <span class="badge badge-prestamo text-white px-3 py-2">EN PRÉSTAMO</span>
+                            {% else %}
+                                <span class="badge bg-secondary text-white px-3 py-2">DEVUELTO</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <small class="d-block text-muted"><strong>Salida:</strong> {{ m.observaciones_entrega or '-' }}</small>
+                            {% if m.observaciones_devolucion %}
+                            <small class="d-block text-muted"><strong>Retorno:</strong> {{ m.observaciones_devolucion }}</small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not movimientos %}
+                    <tr id="filaSinReportes">
+                        <td colspan="8" class="text-center py-4 text-muted">No se registran movimientos en el período seleccionado.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+var ordenReporte = {};
+
+function filtrarTablaReporte() {
+    let txt = document.getElementById('buscadorReporte').value.toLowerCase().trim();
+    let filas = document.querySelectorAll('#tbodyReportes tr');
+
+    filas.forEach(f => {
+        if (f.id === 'filaSinReportes') return;
+        let textoTotal = f.innerText.toLowerCase();
+        f.style.display = (txt === '' || textoTotal.includes(txt)) ? '' : 'none';
+    });
+}
+
+function cambiarCategoriaReporte(categoria) {
+    const parametros = new URLSearchParams(window.location.search);
+    parametros.set('categoria', categoria);
+    window.location.href = '/reportes?' + parametros.toString();
+}
+
+function ordenarColumnaReporte(colIdx) {
+    let dir = ordenReporte[colIdx] === 'asc' ? 'desc' : 'asc';
+    ordenarManualReporte(colIdx, dir);
+}
+
+function ordenarManualReporte(colIdx, dir) {
+    ordenReporte = {};
+    ordenReporte[colIdx] = dir;
+
+    for (let i = 0; i <= 6; i++) {
+        let el = document.getElementById('sortRep' + i);
+        if (el) {
+            if (i === colIdx) {
+                el.innerText = dir === 'asc' ? ' ▲' : ' ▼';
+                el.style.color = '#ffc107';
+            } else {
+                el.innerText = ' ↕';
+                el.style.color = 'rgba(255,255,255,0.5)';
+            }
+        }
+    }
+
+    const tbody = document.getElementById('tbodyReportes');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length === 0 || rows[0].id === 'filaSinReportes') return;
+
+    rows.sort((rowA, rowB) => {
+        let cellA = rowA.children[colIdx] ? rowA.children[colIdx].innerText.trim() : '';
+        let cellB = rowB.children[colIdx] ? rowB.children[colIdx].innerText.trim() : '';
+
+        let numA = parseFloat(cellA.replace(/[^0-9.-]+/g, ''));
+        let numB = parseFloat(cellB.replace(/[^0-9.-]+/g, ''));
+        let esNumA = !isNaN(numA) && cellA.match(/^[0-9.-]+$/);
+        let esNumB = !isNaN(numB) && cellB.match(/^[0-9.-]+$/);
+
+        if (esNumA && esNumB) {
+            return dir === 'asc' ? numA - numB : numB - numA;
+        }
+
+        return dir === 'asc'
+            ? cellA.localeCompare(cellB, 'es', { numeric: true, sensitivity: 'base' })
+            : cellB.localeCompare(cellA, 'es', { numeric: true, sensitivity: 'base' });
+    });
+
+    tbody.innerHTML = '';
+    rows.forEach(r => tbody.appendChild(r));
+    filtrarTablaReporte();
+}
+</script>
+{% endblock %}

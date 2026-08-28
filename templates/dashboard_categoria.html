@@ -1,0 +1,542 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    <!-- Mensajes Flotantes -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, msg in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                    {{ msg }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Encabezado y Navegación -->
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <a href="/prestamos" class="btn btn-outline-secondary btn-sm mb-1">
+                <i class="bi bi-arrow-left me-1"></i> Volver a Submódulos
+            </a>
+            <h3 class="fw-bold text-primary mb-0">{{ titulo_categoria }}</h3>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoEquipo">
+                <i class="bi bi-plus-circle me-1"></i> Registrar Bien en esta Categoría
+            </button>
+        </div>
+    </div>
+
+    <!-- Tarjetas de Resumen -->
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-md-4">
+            <div class="card shadow-sm border-0 border-start border-4 border-primary h-100">
+                <div class="card-body">
+                    <h6 class="text-muted fw-bold mb-1">Total en esta Categoría</h6>
+                    <h2 class="fw-bold mb-0 text-primary">{{ total_cat }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-4">
+            <div class="card shadow-sm border-0 border-start border-4 border-danger h-100">
+                <div class="card-body">
+                    <h6 class="text-muted fw-bold mb-1">Actualmente en Préstamo</h6>
+                    <h2 class="fw-bold mb-0 text-danger">{{ prestados_cat }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-4">
+            <div class="card shadow-sm border-0 border-start border-4 border-success h-100">
+                <div class="card-body">
+                    <h6 class="text-muted fw-bold mb-1">Disponibles en Almacén</h6>
+                    <h2 class="fw-bold mb-0 text-success">{{ almacen_cat }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BARRA DE REPORTES EXCEL -->
+    <div class="card shadow-sm border-0 mb-3 bg-white">
+        <div class="card-body p-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-file-earmark-spreadsheet fs-4 text-success"></i>
+                <span class="fw-bold text-dark">Descargar Reportes en Excel:</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <!-- Botón Todos -->
+                <a href="/prestamos/exportar-excel/{{ categoria.lower() }}?estado=TODOS" class="btn btn-success btn-sm px-3 shadow-sm">
+                    📊 Todos los Bienes ({{ total_cat }})
+                </a>
+                <!-- Botón Solo Prestados -->
+                <a href="/prestamos/exportar-excel/{{ categoria.lower() }}?estado=PRESTADOS" class="btn btn-danger btn-sm px-3 shadow-sm">
+                    <i class="bi bi-box-arrow-up me-1"></i> Solo en Préstamo ({{ prestados_cat }})
+                </a>
+                <!-- Botón Solo Almacén -->
+                <a href="/prestamos/exportar-excel/{{ categoria.lower() }}?estado=ALMACEN" class="btn btn-outline-success btn-sm px-3 shadow-sm">
+                    <i class="bi bi-box-seam me-1"></i> Solo en Almacén ({{ almacen_cat }})
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filtros y Búsqueda en Vivo -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-12 col-md-4">
+                    <input type="text" id="buscadorTabla" class="form-control" placeholder="🔍 Buscar por código, custodio, DNI, serie o marca...">
+                </div>
+                <div class="col-12 col-md-4">
+                    <select id="filtroTipo" class="form-select">
+                        <option value="">-- Todos los Tipos / Modelos --</option>
+                        {% for tipo in tipos_disponibles %}
+                            <option value="{{ tipo }}">{{ tipo }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-md-4 d-flex justify-content-md-end gap-1">
+                    <button class="btn btn-outline-secondary btn-sm active" onclick="filtrarEstadoRapido('TODOS', this)">Todos</button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="filtrarEstadoRapido('EN PRESTAMO', this)">En Préstamo</button>
+                    <button class="btn btn-outline-success btn-sm" onclick="filtrarEstadoRapido('EN ALMACEN', this)">En Almacén</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de Inventario -->
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="tablaInventario">
+                    <thead class="table-dark text-center">
+                        <tr>
+                            <th style="width: 130px;">Cód. Margesí</th>
+                            <th>Descripción / Tipo</th>
+                            <th>Marca / Modelo</th>
+                            <th>Serie / IMEI</th>
+                            <th>Celular Institucional</th>
+                            <th>Estado Físico</th>
+                            <th>Control</th>
+                            <th>Custodio Actual</th>
+                            <th>Fecha Salida</th>
+                            <th style="width: 140px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for eq in equipos %}
+                        <tr data-estado="{{ eq.estado }}" data-tipo="{{ eq.descripcion or eq.tipo_equipo }}">
+                            <td class="text-center fw-bold text-secondary">
+                                {{ eq.codigo_margesi or eq.codigo_interno }}
+                            </td>
+                            <td>
+                                <strong>{{ eq.descripcion or eq.tipo_equipo }}</strong>
+                                {% if eq.observaciones %}
+                                    <br><small class="text-muted">{{ eq.observaciones }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ eq.marca or '-' }} / {{ eq.modelo or '-' }}
+                            </td>
+                            <td class="text-center font-monospace small">
+                                {{ eq.serie_medidas or eq.numero_serie or '-' }}
+                            </td>
+                            <td class="text-center">
+                                {{ eq.celular_institucional or '-' }}
+                            </td>
+                            <td class="text-center">
+                                <span class="badge bg-secondary">{{ eq.estado_conservacion or 'BUENO' }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if eq.estado == 'EN ALMACEN' %}
+                                    <span class="badge bg-success">EN ALMACÉN</span>
+                                {% else %}
+                                    <span class="badge bg-danger">EN PRÉSTAMO</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if eq.estado == 'EN PRESTAMO' %}
+                                    <strong>{{ eq.trabajador_nombre }}</strong><br>
+                                    <small class="text-muted">DNI: {{ eq.trabajador_dni }} | {{ eq.trabajador_cargo }}</small>
+                                {% else %}
+                                    <span class="text-muted fst-italic">En Almacén</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center small">
+                                {% if eq.estado == 'EN PRESTAMO' and eq.fecha_prestamo %}
+                                    {{ eq.fecha_prestamo }}
+                                {% else %}
+                                    ---
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                <div class="btn-group btn-group-sm">
+                                    {% if eq.estado == 'EN ALMACEN' %}
+                                        <button class="btn btn-success" title="Prestar Equipo" onclick="abrirModalPrestamo('{{ eq.id }}', '{{ eq.codigo_margesi or eq.codigo_interno }} - {{ eq.descripcion }}')">
+                                            <i class="bi bi-box-arrow-up me-1"></i> Prestar
+                                        </button>
+                                    {% else %}
+                                        <button class="btn btn-warning" title="Recibir Equipo" onclick="abrirModalDevolucion('{{ eq.prestamo_id }}', '{{ eq.codigo_margesi or eq.codigo_interno }} - {{ eq.descripcion }}')">
+                                            <i class="bi bi-box-arrow-down me-1"></i> Devolver
+                                        </button>
+                                        {% if eq.archivo_acta_entrega %}
+                                            <a href="/actas/descargar/{{ eq.archivo_acta_entrega }}" class="btn btn-outline-primary" title="Descargar Acta Word">
+                                                <i class="bi bi-file-earmark-word"></i>
+                                            </a>
+                                        {% endif %}
+                                    {% endif %}
+                                    <button class="btn btn-outline-secondary" title="Ver Historial" onclick="verHistorial('{{ eq.id }}')">
+                                        <i class="bi bi-clock-history"></i>
+                                    </button>
+                                    <button class="btn btn-outline-dark" title="Editar Bien" onclick="abrirModalEditar('{{ eq.id }}', '{{ eq.codigo_margesi or eq.codigo_interno }}', '{{ eq.descripcion or eq.tipo_equipo }}', '{{ eq.marca }}', '{{ eq.modelo }}', '{{ eq.serie_medidas or eq.numero_serie }}', '{{ eq.celular_institucional or '' }}', '{{ eq.estado_conservacion }}', '{{ eq.color }}', '{{ eq.sede }}', '{{ eq.observaciones }}')">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not equipos %}
+                        <tr>
+                            <td colspan="10" class="text-center py-4 text-muted">
+                                No se encontraron bienes registrados en esta categoría.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: REGISTRAR PRÉSTAMO -->
+<div class="modal fade" id="modalPrestamo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form action="/prestar" method="POST" class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Registrar Préstamo / Asignación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="equipo_id" id="prestamo_equipo_id">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Equipo a entregar:</label>
+                    <input type="text" id="prestamo_equipo_texto" class="form-control" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Seleccionar Trabajador (Custodio) *</label>
+                    <select name="trabajador_id" class="form-select" required>
+                        <option value="">-- Seleccionar Trabajador --</option>
+                        {% for tr in trabajadores %}
+                            <option value="{{ tr.id }}">{{ tr.nombre_completo }} (DNI: {{ tr.dni }} - {{ tr.cargo }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Observaciones / Accesorios de Entrega:</label>
+                    <textarea name="observaciones_entrega" class="form-control" rows="2" placeholder="Ej: Con cargador original, cable USB y funda."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-success">Confirmar y Generar Acta</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: DEVOLUCIÓN -->
+<div class="modal fade" id="modalDevolucion" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form action="/devolver" method="POST" class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">Recepción de Bien a Almacén</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="prestamo_id" id="devolucion_prestamo_id">
+                <p>¿Confirmar la recepción del bien <strong id="devolucion_equipo_texto"></strong> y retornar a <strong>EN ALMACÉN</strong>?</p>
+                <div class="mb-3">
+                    <label class="form-label">Observaciones de Recepción / Estado:</label>
+                    <textarea name="observaciones_devolucion" class="form-control" rows="2" placeholder="Ej: Devuelto en buen estado operativo, pantalla intacta."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-warning">Confirmar Retorno</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: REGISTRAR NUEVO BIEN -->
+<div class="modal fade" id="modalNuevoEquipo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form action="/equipos/nuevo" method="POST" class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Registrar Bien en {{ titulo_categoria }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="categoria" value="{{ categoria }}">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Código Margesí / Interno *</label>
+                    <input type="text" name="codigo_margesi" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Descripción del Bien *</label>
+                    <input type="text" name="descripcion" class="form-control" placeholder="Ej: CELULAR SMARTPHONE GALAXY A14" required>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Marca</label>
+                        <input type="text" name="marca" class="form-control" placeholder="Ej: SAMSUNG">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Modelo</label>
+                        <input type="text" name="modelo" class="form-control" placeholder="Ej: A14 5G">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Serie / IMEI / Medidas</label>
+                    <input type="text" name="serie_medidas" class="form-control" placeholder="Ej: 357494914612068">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Celular Institucional</label>
+                    <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777">
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Estado Conservación</label>
+                        <select name="estado_conservacion" class="form-select">
+                            <option value="BUENO">BUENO</option>
+                            <option value="REGULAR">REGULAR</option>
+                            <option value="MALO">MALO</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Sede</label>
+                        <input type="text" name="sede" class="form-control" value="ABANCAY">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Observaciones</label>
+                    <textarea name="observaciones" class="form-control" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar en Almacén</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: EDITAR BIEN -->
+<div class="modal fade" id="modalEditarEquipo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form action="/equipos/editar" method="POST" class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar Datos del Bien</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="equipo_id" id="edit_equipo_id">
+                <input type="hidden" name="categoria" value="{{ categoria }}">
+                <input type="hidden" name="color" id="edit_color">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Código Margesí / Interno *</label>
+                    <input type="text" name="codigo_margesi" id="edit_codigo_margesi" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Descripción del Bien *</label>
+                    <input type="text" name="descripcion" id="edit_descripcion" class="form-control" required>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Marca</label>
+                        <input type="text" name="marca" id="edit_marca" class="form-control">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Modelo</label>
+                        <input type="text" name="modelo" id="edit_modelo" class="form-control">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Serie / IMEI / Medidas</label>
+                    <input type="text" name="serie_medidas" id="edit_serie_medidas" class="form-control">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Celular Institucional</label>
+                    <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control" placeholder="Ej: 999888777">
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Estado Conservación</label>
+                        <select name="estado_conservacion" id="edit_estado_conservacion" class="form-select">
+                            <option value="BUENO">BUENO</option>
+                            <option value="REGULAR">REGULAR</option>
+                            <option value="MALO">MALO</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Sede</label>
+                        <input type="text" name="sede" id="edit_sede" class="form-control">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Observaciones</label>
+                    <textarea name="observaciones" id="edit_observaciones" class="form-control" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-warning fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: HISTORIAL DE PRÉSTAMOS -->
+<div class="modal fade" id="modalHistorial" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">Historial y Trazabilidad del Bien</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="historialCargando" class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Cargando historial...</p>
+                </div>
+                <div id="historialContenido" style="display: none;">
+                    <div class="p-3 bg-light rounded mb-3">
+                        <strong id="hist_bien"></strong> | S/N: <span id="hist_serie"></span> | Estado: <span id="hist_estado"></span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered align-middle">
+                            <thead class="table-secondary text-center">
+                                <tr>
+                                    <th>Fecha Salida</th>
+                                    <th>Fecha Retorno</th>
+                                    <th>Tiempo de Uso</th>
+                                    <th>Custodio</th>
+                                    <th>Estado</th>
+                                    <th>Acta</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historialFilas"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JAVASCRIPT DE FILTRADO Y MODALES -->
+<script>
+function abrirModalPrestamo(id, texto) {
+    document.getElementById('prestamo_equipo_id').value = id;
+    document.getElementById('prestamo_equipo_texto').value = texto;
+    new bootstrap.Modal(document.getElementById('modalPrestamo')).show();
+}
+
+function abrirModalDevolucion(id, texto) {
+    document.getElementById('devolucion_prestamo_id').value = id;
+    document.getElementById('devolucion_equipo_texto').innerText = texto;
+    new bootstrap.Modal(document.getElementById('modalDevolucion')).show();
+}
+
+function abrirModalEditar(id, codigo, descripcion, marca, modelo, serie, celularInstitucional, estadoConservacion, color, sede, observaciones) {
+    document.getElementById('edit_equipo_id').value = id;
+    document.getElementById('edit_codigo_margesi').value = codigo;
+    document.getElementById('edit_descripcion').value = descripcion;
+    document.getElementById('edit_marca').value = marca;
+    document.getElementById('edit_modelo').value = modelo;
+    document.getElementById('edit_serie_medidas').value = serie;
+    document.getElementById('edit_celular_institucional').value = celularInstitucional;
+    document.getElementById('edit_color').value = color;
+    document.getElementById('edit_estado_conservacion').value = estadoConservacion || 'BUENO';
+    document.getElementById('edit_sede').value = sede;
+    document.getElementById('edit_observaciones').value = observaciones;
+    new bootstrap.Modal(document.getElementById('modalEditarEquipo')).show();
+}
+
+function verHistorial(id) {
+    const modal = new bootstrap.Modal(document.getElementById('modalHistorial'));
+    modal.show();
+    document.getElementById('historialCargando').style.display = 'block';
+    document.getElementById('historialContenido').style.display = 'none';
+
+    fetch(`/api/historial-equipo/${id}`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('hist_bien').innerText = `${data.codigo_margesi} - ${data.descripcion}`;
+            document.getElementById('hist_serie').innerText = data.serie || '-';
+            document.getElementById('hist_estado').innerText = data.estado_actual;
+            
+            const tbody = document.getElementById('historialFilas');
+            tbody.innerHTML = '';
+            if (data.historial.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-2">No registra préstamos anteriores.</td></tr>';
+            } else {
+                data.historial.forEach(h => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td class="text-center small">${h.fecha_prestamo}</td>
+                            <td class="text-center small">${h.fecha_devolucion}</td>
+                            <td class="text-center small">${h.duracion}</td>
+                            <td><strong>${h.custodio}</strong><br><small class="text-muted">DNI: ${h.dni} | ${h.cargo}</small></td>
+                            <td class="text-center"><span class="badge ${h.estado === 'ACTIVO' ? 'bg-danger' : 'bg-secondary'}">${h.estado}</span></td>
+                            <td class="text-center">${h.archivo_acta ? `<a href="/actas/descargar/${h.archivo_acta}" class="btn btn-sm btn-outline-primary" title="Descargar acta"><i class="bi bi-file-earmark-word"></i></a>` : '-'}</td>
+                        </tr>
+                    `;
+                });
+            }
+            document.getElementById('historialCargando').style.display = 'none';
+            document.getElementById('historialContenido').style.display = 'block';
+        });
+}
+
+// Buscador en vivo y filtros
+let estadoFiltroActivo = 'TODOS';
+document.getElementById('buscadorTabla').addEventListener('input', aplicarFiltros);
+document.getElementById('filtroTipo').addEventListener('change', aplicarFiltros);
+
+function filtrarEstadoRapido(estado, btn) {
+    estadoFiltroActivo = estado;
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    aplicarFiltros();
+}
+
+function aplicarFiltros() {
+    const busqueda = document.getElementById('buscadorTabla').value.toLowerCase().trim();
+    const tipo = document.getElementById('filtroTipo').value;
+    const filas = document.querySelectorAll('#tablaInventario tbody tr');
+
+    filas.forEach(fila => {
+        const textoFila = fila.innerText.toLowerCase();
+        const filaEstado = fila.getAttribute('data-estado');
+        const filaTipo = fila.getAttribute('data-tipo');
+
+        const coincideBusqueda = !busqueda || textoFila.includes(busqueda);
+        const coincideTipo = !tipo || filaTipo === tipo;
+        const coincideEstado = estadoFiltroActivo === 'TODOS' || filaEstado === estadoFiltroActivo;
+
+        if (coincideBusqueda && coincideTipo && coincideEstado) {
+            fila.style.display = '';
+        } else {
+            fila.style.display = 'none';
+        }
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,689 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    th.sortable-header {
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.2s ease;
+    }
+    th.sortable-header:hover {
+        background-color: #2c3e50 !important;
+        color: #ffc107 !important;
+    }
+</style>
+
+<!-- Resumen Estadístico -->
+<div class="row g-3 mb-4 no-print">
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3 text-danger fs-3">
+                    <i class="bi bi-exclamation-circle-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Pendientes</h6>
+                    <h3 class="fw-bold mb-0 text-danger">{{ total_pendientes }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3 text-warning fs-3">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">En Progreso</h6>
+                    <h3 class="fw-bold mb-0 text-warning">{{ total_proceso }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3 text-success fs-3">
+                    <i class="bi bi-check-circle-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Completadas</h6>
+                    <h3 class="fw-bold mb-0 text-success">{{ total_completadas }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3 text-primary fs-3">
+                    <i class="bi bi-journal-text"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Total Registros</h6>
+                    <h3 class="fw-bold mb-0 text-primary">{{ total_general }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Barra de Acciones y Pestañas -->
+<div class="card shadow-sm border-0 mb-3 bg-white no-print">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <button class="btn btn-primary btn-lg fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevaActividad" onclick="configurarHorasActuales()">
+            <i class="bi bi-plus-circle-fill me-1"></i> Nueva Actividad TI
+        </button>
+
+        <ul class="nav nav-pills" id="pills-tab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active fw-bold" id="tab-lista" data-bs-toggle="pill" data-bs-target="#pills-lista" type="button" role="tab">
+                    <i class="bi bi-list-task me-1"></i> Lista de Actividades (Tasks)
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-bold" id="tab-calendario" data-bs-toggle="pill" data-bs-target="#pills-calendario" type="button" role="tab">
+                    <i class="bi bi-calendar3 me-1"></i> Calendario Visual de Soporte
+                </button>
+            </li>
+        </ul>
+
+        <div class="d-flex flex-wrap gap-2 ms-auto">
+            <a href="/actividades/exportar-excel" class="btn btn-success btn-lg fw-bold shadow-sm">
+                <i class="bi bi-file-earmark-excel-fill me-1"></i> Exportar Bitácora a Excel
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Contenido Principal -->
+<div class="tab-content" id="pills-tabContent">
+    
+    <!-- PESTAÑA 1: LISTA DE ACTIVIDADES -->
+    <div class="tab-pane fade show active" id="pills-lista" role="tabpanel">
+        
+        <!-- Panel de Filtros y Ordenamiento -->
+        <div class="card shadow-sm border-0 p-3 mb-3 bg-white no-print">
+            <div class="row g-3 align-items-center mb-2">
+                <div class="col-lg-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light"><i class="bi bi-search text-primary"></i></span>
+                        <input type="text" id="buscadorActividades" class="form-control" placeholder="Buscar por requerimiento, área, detalle..." onkeyup="filtrarTablaActividades()">
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light fw-bold small"><i class="bi bi-funnel-fill text-primary me-1"></i> Categoría:</span>
+                        <select id="filtroCatActividad" class="form-select" onchange="filtrarTablaActividades()">
+                            <option value="">-- Todas las Categorías --</option>
+                            <option value="HARDWARE">HARDWARE</option>
+                            <option value="SOFTWARE">SOFTWARE</option>
+                            <option value="REDES">REDES</option>
+                            <option value="TOKENS">TOKENS Y FIRMAS DIGITALES</option>
+                            <option value="EQUIPOS MOVILES">EQUIPOS MÓVILES</option>
+                            <option value="CAPACITACION">ASISTENCIA TÉCNICA</option>
+                            <option value="TRAMITE UTI">GESTIÓN DOCUMENTARIA</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-lg-4 text-lg-end">
+                    <div class="btn-group w-100" role="group">
+                        <a href="/actividades?estado=TODOS" class="btn {% if filtro_estado == 'TODOS' %}btn-dark{% else %}btn-outline-dark{% endif %} btn-sm">Todas</a>
+                        <a href="/actividades?estado=PENDIENTE" class="btn {% if filtro_estado == 'PENDIENTE' %}btn-danger{% else %}btn-outline-danger{% endif %} btn-sm">Pendientes</a>
+                        <a href="/actividades?estado=EN PROGRESO" class="btn {% if filtro_estado == 'EN PROGRESO' %}btn-warning text-dark{% else %}btn-outline-warning{% endif %} btn-sm">En Progreso</a>
+                        <a href="/actividades?estado=COMPLETADA" class="btn {% if filtro_estado == 'COMPLETADA' %}btn-success{% else %}btn-outline-success{% endif %} btn-sm">Completadas</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botones de Ordenamiento Rápido -->
+            <div class="d-flex flex-wrap align-items-center justify-content-between pt-2 border-top gap-2">
+                <span class="small fw-bold text-muted"><i class="bi bi-sort-down me-1"></i> Ordenar:</span>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="ordenarManualActividades(0, 'desc')">
+                        <i class="bi bi-calendar-event me-1"></i> Fecha (Más Reciente)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="ordenarManualActividades(0, 'asc')">
+                        <i class="bi bi-calendar-event me-1"></i> Fecha (Más Antigua)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" onclick="ordenarManualActividades(2, 'asc')">
+                        <i class="bi bi-sort-alpha-down me-1"></i> Actividad (A ➔ Z)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" onclick="ordenarManualActividades(2, 'desc')">
+                        <i class="bi bi-sort-alpha-up-alt me-1"></i> Actividad (Z ➔ A)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger fw-bold" onclick="ordenarPrioridadActividades()">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i> Prioridad ALTA Primero
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-3">
+                <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>Bitácora de Tareas</h5>
+                <small class="text-white-50"><i class="bi bi-cursor me-1"></i>Haga clic en los encabezados para ordenar</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="tablaActividades">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(0)" style="width: 11%;">Fecha / Hora <span id="sortAct0">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(1)" style="width: 15%;">Categoría / Área <span id="sortAct1">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(2)" style="width: 25%;">Actividad / Requerimiento <span id="sortAct2">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(3)" style="width: 10%;">Prioridad <span id="sortAct3">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(4)" style="width: 12%;">Estado <span id="sortAct4">↕</span></th>
+                                <th style="width: 14%;">Google Calendar</th>
+                                <th style="width: 13%;" class="text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyActividades">
+                            {% for a in actividades %}
+                            <tr data-prioridad="{{ a.prioridad }}" data-estado="{{ a.estado }}">
+                                <td>
+                                    <div class="fw-bold text-dark">{{ a.fecha_programada }}</div>
+                                    <small class="text-muted"><i class="bi bi-clock me-1"></i>{{ a.hora_inicio or '--:--' }} a {{ a.hora_fin or '--:--' }}</small>
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary mb-1">{{ a.categoria }}</span>
+                                    <div><small class="text-primary fw-bold"><i class="bi bi-geo-alt me-1"></i>{{ a.area_solicitante or 'UTI' }}</small></div>
+                                </td>
+                                <td>
+                                    <div class="fw-bold fs-6">{{ a.titulo }}</div>
+                                    {% if a.descripcion %}<small class="text-muted d-block">{{ a.descripcion }}</small>{% endif %}
+                                    {% if a.solucion_aplicada %}<small class="text-success d-block fw-semibold"><i class="bi bi-check-all me-1"></i>{{ a.solucion_aplicada }}</small>{% endif %}
+                                </td>
+                                <td>
+                                    {% if a.prioridad == 'ALTA' %}
+                                        <span class="badge bg-danger">ALTA</span>
+                                    {% elif a.prioridad == 'MEDIA' %}
+                                        <span class="badge bg-warning text-dark">MEDIA</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">BAJA</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm {% if a.estado == 'COMPLETADA' %}btn-success{% elif a.estado == 'EN PROGRESO' %}btn-warning text-dark{% else %}btn-danger{% endif %} dropdown-toggle fw-bold" type="button" data-bs-toggle="dropdown">
+                                            {{ a.estado }}
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li><a class="dropdown-item text-danger fw-bold" href="/actividades/estado/{{ a.id }}/PENDIENTE"><i class="bi bi-exclamation-circle me-1"></i> PENDIENTE</a></li>
+                                            <li><a class="dropdown-item text-warning fw-bold" href="/actividades/estado/{{ a.id }}/EN PROGRESO"><i class="bi bi-clock-history me-1"></i> EN PROGRESO</a></li>
+                                            <li><button type="button" class="dropdown-item text-success fw-bold btn-completar-actividad"
+                                                data-id="{{ a.id }}" data-titulo="{{ a.titulo }}"><i class="bi bi-check-circle me-1"></i> COMPLETADA</button></li>
+                                        </ul>
+                                    </div>
+                                </td>
+                                <td>
+                                    <a href="{{ a.google_calendar_url }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Añadir a mi Google Calendar">
+                                        <i class="bi bi-google me-1"></i> Agendar
+                                    </a>
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-flex flex-wrap justify-content-center gap-1">
+                                        {% if a.estado == 'COMPLETADA' %}
+                                        <button type="button" class="btn btn-sm btn-success fw-bold btn-acciones-realizadas" title="Registrar acciones realizadas"
+                                            data-id="{{ a.id }}" data-titulo="{{ a.titulo }}" data-solucion="{{ a.solucion_aplicada or '' }}">
+                                            <i class="bi bi-clipboard-check me-1"></i> ACCIONES REALIZADAS
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                    <div class="btn-group mt-1" role="group">
+                                        <!-- BOTÓN EDITAR CON DATA-ATTRIBUTES SEGUROS -->
+                                        <button type="button" class="btn btn-sm btn-outline-primary btn-editar-actividad" title="Editar Tarea"
+                                            data-id="{{ a.id }}"
+                                            data-titulo="{{ a.titulo }}"
+                                            data-descripcion="{{ a.descripcion or '' }}"
+                                            data-categoria="{{ a.categoria }}"
+                                            data-area="{{ a.area_solicitante or '' }}"
+                                            data-prioridad="{{ a.prioridad }}"
+                                            data-estado="{{ a.estado }}"
+                                            data-fecha="{{ a.fecha_programada }}"
+                                            data-h-ini="{{ a.hora_inicio or '' }}"
+                                            data-h-fin="{{ a.hora_fin or '' }}"
+                                            data-solucion="{{ a.solucion_aplicada or '' }}">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </button>
+
+                                        {% if session.get('rol') == 'ADMIN' %}
+                                        <button class="btn btn-sm btn-outline-danger" title="Eliminar Tarea"
+                                            onclick="abrirModalEliminarActividad('{{ a.id }}', '{{ a.titulo }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% if not actividades %}
+                            <tr id="filaSinActividades">
+                                <td colspan="7" class="text-center py-4 text-muted">
+                                    No hay actividades registradas en este filtro.
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PESTAÑA 2: CALENDARIO VISUAL -->
+    <div class="tab-pane fade" id="pills-calendario" role="tabpanel">
+        <div class="card shadow-sm border-0 p-4 bg-white">
+            <div id="calendar"></div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Modal: ACCIONES REALIZADAS -->
+<div class="modal fade" id="modalAccionesRealizadas" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="/actividades/acciones-realizadas" method="POST" class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-clipboard-check me-2"></i>ACCIONES REALIZADAS</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="actividad_id" id="acciones_actividad_id">
+                <p class="mb-2">Registre lo realizado en la tarea:</p>
+                <div class="alert alert-light border fw-bold" id="acciones_actividad_titulo"></div>
+                <label for="acciones_solucion" class="form-label fw-bold">Detalle de las acciones realizadas *</label>
+                <textarea name="solucion_aplicada" id="acciones_solucion" class="form-control" rows="5" required placeholder="Describa la solución, configuración o atención realizada..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-save me-1"></i> Guardar acciones</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: NUEVA ACTIVIDAD TI -->
+<div class="modal fade" id="modalNuevaActividad" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <form action="/actividades/nueva" method="POST" class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-calendar-plus me-2"></i>Registrar Actividad / Tarea de Soporte TI</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <div class="col-md-8">
+                    <label class="form-label fw-bold">Título de la Actividad / Requerimiento *</label>
+                    <input type="text" name="titulo" class="form-control" required placeholder="Ej: Mantenimiento PC Administración, Configuración de Impresora...">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Categoría TI</label>
+                    <select name="categoria" class="form-select">
+                        <option value="HARDWARE">HARDWARE (Mantenimiento, PCs, Laptops)</option>
+                        <option value="SOFTWARE">SOFTWARE (Instalación, Antivirus, SIGA)</option>
+                        <option value="REDES">REDES (Conectividad LAN/WiFi, Cableado)</option>
+                        <option value="TOKENS">TOKENS Y FIRMAS DIGITALES</option>
+                        <option value="EQUIPOS MOVILES">EQUIPOS MÓVILES (Celulares, Chips)</option>
+                        <option value="CAPACITACION">ASISTENCIA TÉCNICA / USUARIOS</option>
+                        <option value="TRAMITE UTI">GESTIÓN DOCUMENTARIA / UTI</option>
+                    </select>
+                </div>
+
+                <!-- JALAR DATOS DEL SOLICITANTE / ÁREA -->
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-primary"><i class="bi bi-person-badge me-1"></i>Área o Persona Solicitante *</label>
+                    
+                    <select class="form-select form-select-sm mb-1 bg-light text-dark fw-semibold" id="select_solicitante" onchange="seleccionarSolicitante(this)">
+                        <option value="">-- Seleccionar del Padrón de Trabajadores o Áreas --</option>
+                        <optgroup label="Áreas Institucionales">
+                            <option value="Unidad de Administración">Unidad de Administración</option>
+                            <option value="Coordinación Técnica">Coordinación Técnica</option>
+                            <option value="Dirección / Jefatura">Dirección / Jefatura</option>
+                            <option value="Almacén Central">Almacén Central</option>
+                            <option value="Unidad de Tecnologías de la Información (UTI)">Unidad de Tecnologías de la Información (UTI)</option>
+                        </optgroup>
+                        <optgroup label="Trabajadores Registrados">
+                            {% for tr in trabajadores %}
+                            <option value="{{ tr.nombre_completo }} ({{ tr.cargo }})">{{ tr.nombre_completo }} - {{ tr.cargo }} (DNI: {{ tr.dni }})</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+
+                    <input type="text" name="area_solicitante" id="txt_area_solicitante" class="form-control" required placeholder="Escriba o seleccione el área / persona solicitante">
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Prioridad</label>
+                    <select name="prioridad" class="form-select">
+                        <option value="MEDIA">MEDIA</option>
+                        <option value="ALTA">ALTA (Urgente)</option>
+                        <option value="BAJA">BAJA</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Estado Inicial</label>
+                    <select name="estado" class="form-select">
+                        <option value="PENDIENTE">PENDIENTE</option>
+                        <option value="EN PROGRESO">EN PROGRESO</option>
+                        <option value="COMPLETADA">COMPLETADA</option>
+                    </select>
+                </div>
+
+                <!-- FECHA Y HORAS ACTUAL / PROYECTADA -->
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Fecha Programada</label>
+                    <input type="date" name="fecha_programada" class="form-control" value="{{ hoy }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-success"><i class="bi bi-clock me-1"></i>Hora Inicio (Actual)</label>
+                    <input type="time" name="hora_inicio" id="nueva_hora_inicio" class="form-control" value="{{ hora_actual }}" required onchange="actualizarHoraFin(this.value)">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-primary"><i class="bi bi-clock-history me-1"></i>Hora Fin (+1 Hora Estimada)</label>
+                    <input type="time" name="hora_fin" id="nueva_hora_fin" class="form-control" value="{{ hora_fin_estimada }}" required>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">Descripción del Requerimiento</label>
+                    <textarea name="descripcion" class="form-control" rows="2" placeholder="Detalles de la falla, necesidad o tarea a realizar..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary fw-bold">Guardar Actividad</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: EDITAR ACTIVIDAD TI (CORREGIDO) -->
+<div class="modal fade" id="modalEditarActividad" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <form action="/actividades/editar" method="POST" class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Actualizar Actividad de Soporte</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <input type="hidden" name="actividad_id" id="edit_actividad_id">
+                
+                <div class="col-md-8">
+                    <label class="form-label fw-bold">Título de la Actividad *</label>
+                    <input type="text" name="titulo" id="edit_titulo" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Categoría TI</label>
+                    <select name="categoria" id="edit_categoria" class="form-select">
+                        <option value="HARDWARE">HARDWARE</option>
+                        <option value="SOFTWARE">SOFTWARE</option>
+                        <option value="REDES">REDES</option>
+                        <option value="TOKENS">TOKENS Y FIRMAS DIGITALES</option>
+                        <option value="EQUIPOS MOVILES">EQUIPOS MÓVILES</option>
+                        <option value="CAPACITACION">ASISTENCIA TÉCNICA</option>
+                        <option value="TRAMITE UTI">GESTIÓN DOCUMENTARIA</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-primary">Área o Persona Solicitante *</label>
+                    <input type="text" name="area_solicitante" id="edit_area" class="form-control" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Prioridad</label>
+                    <select name="prioridad" id="edit_prioridad" class="form-select">
+                        <option value="ALTA">ALTA</option>
+                        <option value="MEDIA">MEDIA</option>
+                        <option value="BAJA">BAJA</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Estado</label>
+                    <select name="estado" id="edit_estado" class="form-select">
+                        <option value="PENDIENTE">PENDIENTE</option>
+                        <option value="EN PROGRESO">EN PROGRESO</option>
+                        <option value="COMPLETADA">COMPLETADA</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Fecha Programada</label>
+                    <input type="date" name="fecha_programada" id="edit_fecha" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Hora Inicio</label>
+                    <input type="time" name="hora_inicio" id="edit_h_ini" class="form-control">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Hora Fin</label>
+                    <input type="time" name="hora_fin" id="edit_h_fin" class="form-control">
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold">Descripción del Requerimiento</label>
+                    <textarea name="descripcion" id="edit_descripcion" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold text-success">Solución Técnica Aplicada / Reporte de Cierre</label>
+                    <textarea name="solucion_aplicada" id="edit_solucion" class="form-control" rows="2" placeholder="Describa la solución técnica ejecutada..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-warning fw-bold">Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: ELIMINAR ACTIVIDAD (SOLO ADMIN) -->
+<div class="modal fade" id="modalEliminarActividad" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="formEliminarActividad" method="POST" class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-trash-fill me-2"></i>Eliminar Actividad</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>¿Confirmar la eliminación de la siguiente tarea de la bitácora?</p>
+                <div class="alert alert-light border">
+                    <strong id="eliminar_actividad_titulo"></strong>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-danger fw-bold">Sí, Eliminar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+var ordenActividades = {};
+
+// 1. GESTOR SEGURO DE EDICIÓN MEDIANTE EVENT DELEGATION
+document.addEventListener('click', function(e) {
+    let btn = e.target.closest('.btn-editar-actividad');
+    if (btn) {
+        document.getElementById('edit_actividad_id').value = btn.getAttribute('data-id') || '';
+        document.getElementById('edit_titulo').value = btn.getAttribute('data-titulo') || '';
+        document.getElementById('edit_descripcion').value = btn.getAttribute('data-descripcion') || '';
+        document.getElementById('edit_categoria').value = btn.getAttribute('data-categoria') || 'HARDWARE';
+        document.getElementById('edit_area').value = btn.getAttribute('data-area') || '';
+        document.getElementById('edit_prioridad').value = btn.getAttribute('data-prioridad') || 'MEDIA';
+        document.getElementById('edit_estado').value = btn.getAttribute('data-estado') || 'PENDIENTE';
+        document.getElementById('edit_fecha').value = btn.getAttribute('data-fecha') || '';
+        document.getElementById('edit_h_ini').value = btn.getAttribute('data-h-ini') || '';
+        document.getElementById('edit_h_fin').value = btn.getAttribute('data-h-fin') || '';
+        document.getElementById('edit_solucion').value = btn.getAttribute('data-solucion') || '';
+
+        new bootstrap.Modal(document.getElementById('modalEditarActividad')).show();
+    }
+
+    let completarBtn = e.target.closest('.btn-completar-actividad, .btn-acciones-realizadas');
+    if (completarBtn) {
+        abrirModalAccionesRealizadas(completarBtn);
+    }
+});
+
+function abrirModalAccionesRealizadas(btn) {
+    document.getElementById('acciones_actividad_id').value = btn.getAttribute('data-id') || '';
+    document.getElementById('acciones_actividad_titulo').innerText = btn.getAttribute('data-titulo') || '';
+    document.getElementById('acciones_solucion').value = btn.getAttribute('data-solucion') || '';
+    new bootstrap.Modal(document.getElementById('modalAccionesRealizadas')).show();
+}
+
+// Autocompletado del solicitante
+function seleccionarSolicitante(selectEl) {
+    let valor = selectEl.value;
+    if (valor) {
+        document.getElementById('txt_area_solicitante').value = valor;
+    }
+}
+
+// Configuración de horas actuales y proyectada (+1 hora)
+function configurarHorasActuales() {
+    let ahora = new Date();
+    let pad = (n) => n.toString().padStart(2, '0');
+    
+    let hora = pad(ahora.getHours());
+    let minuto = pad(ahora.getMinutes());
+    let horaActualStr = `${hora}:${minuto}`;
+
+    let despues = new Date(ahora.getTime() + 60 * 60 * 1000);
+    let horaFin = pad(despues.getHours());
+    let minutoFin = pad(despues.getMinutes());
+    let horaFinStr = `${horaFin}:${minutoFin}`;
+
+    document.getElementById('nueva_hora_inicio').value = horaActualStr;
+    document.getElementById('nueva_hora_fin').value = horaFinStr;
+}
+
+function actualizarHoraFin(horaInicioVal) {
+    if (!horaInicioVal) return;
+    let partes = horaInicioVal.split(':');
+    let h = parseInt(partes[0]);
+    let m = partes;
+    
+    let hFin = (h + 1) % 24;
+    let hFinStr = hFin.toString().padStart(2, '0') + ':' + m;
+    document.getElementById('nueva_hora_fin').value = hFinStr;
+}
+
+function filtrarTablaActividades() {
+    let txt = document.getElementById('buscadorActividades').value.toLowerCase().trim();
+    let catSel = document.getElementById('filtroCatActividad').value.toLowerCase().trim();
+    let filas = document.querySelectorAll('#tbodyActividades tr');
+
+    filas.forEach(f => {
+        if (f.id === 'filaSinActividades') return;
+        let textoTotal = f.innerText.toLowerCase();
+        let catFila = f.children[1] ? f.children[1].innerText.toLowerCase().trim() : '';
+
+        let okBusqueda = (txt === '') || textoTotal.includes(txt);
+        let okCat = (catSel === '') || catFila.includes(catSel);
+
+        f.style.display = (okBusqueda && okCat) ? '' : 'none';
+    });
+}
+
+function ordenarColumnaActividades(colIdx) {
+    let dir = ordenActividades[colIdx] === 'asc' ? 'desc' : 'asc';
+    ordenarManualActividades(colIdx, dir);
+}
+
+function ordenarManualActividades(colIdx, dir) {
+    ordenActividades = {};
+    ordenActividades[colIdx] = dir;
+
+    for (let i = 0; i <= 4; i++) {
+        let el = document.getElementById('sortAct' + i);
+        if (el) {
+            if (i === colIdx) {
+                el.innerText = dir === 'asc' ? ' ▲' : ' ▼';
+                el.style.color = '#ffc107';
+            } else {
+                el.innerText = ' ↕';
+                el.style.color = 'rgba(255,255,255,0.5)';
+            }
+        }
+    }
+
+    const tbody = document.getElementById('tbodyActividades');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length === 0 || rows[0].id === 'filaSinActividades') return;
+
+    rows.sort((rowA, rowB) => {
+        let cellA = rowA.children[colIdx] ? rowA.children[colIdx].innerText.trim() : '';
+        let cellB = rowB.children[colIdx] ? rowB.children[colIdx].innerText.trim() : '';
+
+        return dir === 'asc'
+            ? cellA.localeCompare(cellB, 'es', { numeric: true, sensitivity: 'base' })
+            : cellB.localeCompare(cellA, 'es', { numeric: true, sensitivity: 'base' });
+    });
+
+    tbody.innerHTML = '';
+    rows.forEach(r => tbody.appendChild(r));
+    filtrarTablaActividades();
+}
+
+function ordenarPrioridadActividades() {
+    ordenActividades = {};
+    for (let i = 0; i <= 4; i++) {
+        let el = document.getElementById('sortAct' + i);
+        if (el) { el.innerText = ' ↕'; el.style.color = 'rgba(255,255,255,0.5)'; }
+    }
+
+    const tbody = document.getElementById('tbodyActividades');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length === 0 || rows[0].id === 'filaSinActividades') return;
+
+    const pesoPrioridad = { 'ALTA': 1, 'MEDIA': 2, 'BAJA': 3 };
+
+    rows.sort((rowA, rowB) => {
+        let pA = pesoPrioridad[rowA.getAttribute('data-prioridad')] || 9;
+        let pB = pesoPrioridad[rowB.getAttribute('data-prioridad')] || 9;
+        return pA - pB;
+    });
+
+    tbody.innerHTML = '';
+    rows.forEach(r => tbody.appendChild(r));
+    filtrarTablaActividades();
+}
+
+function abrirModalEliminarActividad(id, titulo) {
+    document.getElementById('formEliminarActividad').action = '/actividades/eliminar/' + id;
+    document.getElementById('eliminar_actividad_titulo').innerText = titulo;
+    new bootstrap.Modal(document.getElementById('modalEliminarActividad')).show();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar');
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'es',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,listWeek'
+        },
+        events: '/api/actividades-calendario',
+        eventClick: function(info) {
+            alert('Tarea: ' + info.event.title + '\nEstado: ' + info.event.extendedProps.estado + '\nÁrea: ' + info.event.extendedProps.area + '\nDetalle: ' + info.event.extendedProps.description);
+        }
+    });
+
+    document.getElementById('tab-calendario').addEventListener('shown.bs.tab', function () {
+        calendar.render();
+    });
+});
+</script>
+{% endblock %}

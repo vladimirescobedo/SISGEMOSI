@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Mensajes Flash -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<!-- Panel Superior de Acciones Directas -->
+<div class="row g-3 mb-4 align-items-center">
+    <!-- Buscador -->
+    <div class="col-xl-4 col-lg-5">
+        <div class="input-group shadow-sm">
+            <span class="input-group-text bg-white"><i class="bi bi-search text-primary"></i></span>
+            <input type="text" id="buscador" class="form-control form-control-lg" placeholder="Buscar equipo, custodio, DNI, serie...">
+        </div>
+    </div>
+
+    <!-- Botones de Creación y Carga -->
+    <div class="col-xl-8 col-lg-7 text-lg-end d-flex flex-wrap justify-content-lg-end gap-2">
+        <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoEquipo">
+            <i class="bi bi-plus-circle me-1"></i> Nuevo Equipo
+        </button>
+
+        <!-- BOTÓN DIRECTO PARA AGREGAR TRABAJADOR -->
+        <button class="btn btn-info text-dark fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoTrabajadorDirecto">
+            <i class="bi bi-person-plus-fill me-1"></i> Nuevo Trabajador
+        </button>
+
+        <!-- Formulario Carga Excel -->
+        <form action="/importar-excel" method="POST" enctype="multipart/form-data" class="d-inline-flex gap-1">
+            <input type="file" name="archivo_excel" class="form-control form-control-sm" accept=".xlsx, .xls" required style="max-width: 170px;" title="Seleccionar Excel">
+            <button type="submit" class="btn btn-success btn-sm text-nowrap">
+                <i class="bi bi-file-earmark-excel"></i> Cargar Excel
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Tabla Principal de Equipos y Control -->
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>Inventario y Control de Préstamos</h5>
+        <span class="badge bg-light text-dark fs-6">{{ equipos|length }} Equipos</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" id="tablaEquipos">
+                <thead class="table-secondary">
+                    <tr>
+                        <th style="width: 10%;">Cód. Interno</th>
+                        <th style="width: 18%;">Tipo / Detalle</th>
+                        <th style="width: 18%;">Serie / IMEI / Línea</th>
+                        <th style="width: 14%;">Estado</th>
+                        <th style="width: 20%;">Custodio Actual</th>
+                        <th style="width: 10%;">Desde Cuándo</th>
+                        <th style="width: 10%;" class="text-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for eq in equipos %}
+                    <tr>
+                        <td><span class="badge bg-secondary fs-6">{{ eq.codigo_interno }}</span></td>
+                        <td>
+                            <div class="fw-bold fs-6">{{ eq.tipo_equipo }}</div>
+                            <small class="text-muted">{{ eq.marca }} {{ eq.modelo }}</small>
+                        </td>
+                        <td>
+                            <div><small><strong>S/N:</strong> {{ eq.numero_serie or '-' }}</small></div>
+                            {% if eq.imei_1 %}<div><small><strong>IMEI:</strong> {{ eq.imei_1 }}</small></div>{% endif %}
+                            {% if eq.numero_linea %}<div><small class="text-primary fw-bold"><strong>Línea:</strong> {{ eq.numero_linea }}</small></div>{% endif %}
+                        </td>
+                        <td>
+                            {% if eq.estado == 'EN ALMACEN' %}
+                                <span class="badge badge-almacen py-2 px-3 text-white"><i class="bi bi-check-circle me-1"></i> EN ALMACÉN</span>
+                            {% else %}
+                                <span class="badge badge-prestamo py-2 px-3 text-white"><i class="bi bi-exclamation-triangle me-1"></i> EN PRÉSTAMO</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if eq.estado == 'EN PRESTAMO' %}
+                                <div class="fw-bold text-danger">{{ eq.trabajador_nombre }}</div>
+                                <small class="text-muted">DNI: {{ eq.trabajador_dni }} | {{ eq.trabajador_cargo }}</small>
+                            {% else %}
+                                <span class="text-muted fst-italic">En Almacén</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if eq.estado == 'EN PRESTAMO' and eq.fecha_prestamo %}
+                                <span class="text-dark fw-bold">{{ eq.fecha_prestamo }}</span>
+                            {% else %}
+                                <span class="text-muted">---</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if eq.estado == 'EN ALMACEN' %}
+                                <button class="btn btn-sm btn-success px-3" onclick="abrirModalPrestar('{{ eq.id }}', '{{ eq.codigo_interno }} - {{ eq.tipo_equipo }} {{ eq.marca }}')">
+                                    <i class="bi bi-arrow-right-circle me-1"></i> Prestar
+                                </button>
+                            {% else %}
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-warning" onclick="abrirModalDevolver('{{ eq.prestamo_id }}', '{{ eq.codigo_interno }}')">
+                                        <i class="bi bi-arrow-left-circle me-1"></i> Devolver
+                                    </button>
+                                    {% if eq.archivo_acta_entrega %}
+                                    <a href="/descargar-acta/{{ eq.archivo_acta_entrega }}" class="btn btn-sm btn-outline-secondary" title="Descargar Acta">
+                                        <i class="bi bi-file-earmark-word"></i>
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not equipos %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">
+                            No hay equipos registrados. Haga clic en <strong>"Nuevo Equipo"</strong> para registrar el primero.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Prestar Equipo -->
+<div class="modal fade" id="modalPrestar" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="/prestar" method="POST" class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-arrow-right-circle me-2"></i>Registrar Préstamo de Equipo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="equipo_id" id="prestar_equipo_id">
+                <div class="alert alert-light border mb-3">
+                    <strong>Equipo a entregar:</strong> <span id="prestar_equipo_nombre" class="text-primary fw-bold"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Seleccionar Trabajador (Custodio):</label>
+                    <select name="trabajador_id" class="form-select" required>
+                        <option value="">-- Seleccionar Trabajador --</option>
+                        {% for tr in trabajadores %}
+                        <option value="{{ tr.id }}">{{ tr.nombre_completo }} (DNI: {{ tr.dni }} - {{ tr.cargo }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Observaciones / Estado de Entrega:</label>
+                    <textarea name="observaciones" class="form-control" rows="2" placeholder="Ej: Se entrega con cargador, cable y funda."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-success">Confirmar y Generar Acta</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Devolver Equipo -->
+<div class="modal fade" id="modalDevolver" tabindex="-1">
+    <div class="modal-dialog">
+        <form action="/devolver" method="POST" class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="bi bi-arrow-left-circle me-2"></i>Recepción de Equipo a Almacén</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="prestamo_id" id="devolver_prestamo_id">
+                <p>¿Confirmar la recepción del equipo <strong id="devolver_equipo_nombre"></strong> y retornar a <strong>EN ALMACÉN</strong>?</p>
+                <div class="mb-3">
+                    <label class="form-label">Observaciones de Recepción:</label>
+                    <textarea name="observaciones_devolucion" class="form-control" rows="2" placeholder="Ej: Se recibe operativo y completo."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-warning">Confirmar Retorno</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Registrar Nuevo Equipo -->
+<div class="modal fade" id="modalNuevoEquipo" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <form action="/equipo/nuevo" method="POST" class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Registrar Nuevo Equipo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Código Interno / Patrimonial *</label>
+                    <input type="text" name="codigo_interno" class="form-control" required placeholder="Ej: CEL-01, LAP-05">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Tipo de Equipo *</label>
+                    <select name="tipo_equipo" class="form-select" required>
+                        <option value="Celular">Celular</option>
+                        <option value="Laptop">Laptop</option>
+                        <option value="Trípode">Trípode</option>
+                        <option value="Cámara Web">Cámara Web</option>
+                        <option value="Otro">Otro</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Marca</label>
+                    <input type="text" name="marca" class="form-control" placeholder="Samsung, Lenovo...">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Modelo</label>
+                    <input type="text" name="modelo" class="form-control">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Número de Serie (S/N)</label>
+                    <input type="text" name="numero_serie" class="form-control">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Número de Línea (si aplica)</label>
+                    <input type="text" name="numero_linea" class="form-control" placeholder="983123456">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">IMEI 1 (si es Celular)</label>
+                    <input type="text" name="imei_1" class="form-control">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">IMEI 2 (si aplica)</label>
+                    <input type="text" name="imei_2" class="form-control">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Accesorios Incluidos</label>
+                    <input type="text" name="accesorios" class="form-control" placeholder="Cargador, cable USB, funda protectora...">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar en Almacén</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: REGISTRAR NUEVO TRABAJADOR DIRECTO -->
+<div class="modal fade" id="modalNuevoTrabajadorDirecto" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <form action="/trabajadores/nuevo" method="POST" class="modal-content">
+            <div class="modal-header bg-info text-dark">
+                <h5 class="modal-title fw-bold"><i class="bi bi-person-plus-fill me-2"></i>Agregar Nuevo Trabajador</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">DNI *</label>
+                    <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" maxlength="15">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Nombres *</label>
+                    <input type="text" name="nombres" class="form-control" required placeholder="Nombres">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Apellido Paterno *</label>
+                    <input type="text" name="apellido_paterno" class="form-control" required placeholder="Paterno">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Apellido Materno *</label>
+                    <input type="text" name="apellido_materno" class="form-control" required placeholder="Materno">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Cargo</label>
+                    <input type="text" name="cargo" class="form-control" placeholder="Ej: Especialista, Asistente...">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Tipo de Contrato</label>
+                    <input type="text" name="tipo_contrato" class="form-control" placeholder="Ej: CAS, 276, 728, Locación...">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Número de Teléfono</label>
+                    <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Correo Institucional</label>
+                    <input type="email" name="correo_institucional" class="form-control" placeholder="usuario@institucion.gob.pe">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Correo Personal</label>
+                    <input type="email" name="correo_personal" class="form-control" placeholder="usuario@gmail.com">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Fecha de Nacimiento</label>
+                    <input type="date" name="fecha_nacimiento" class="form-control">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-info fw-bold">Guardar Trabajador</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('buscador').addEventListener('keyup', function() {
+    let filtro = this.value.toLowerCase();
+    let filas = document.querySelectorAll('#tablaEquipos tbody tr');
+    filas.forEach(function(fila) {
+        let texto = fila.textContent.toLowerCase();
+        fila.style.display = texto.includes(filtro) ? '' : 'none';
+    });
+});
+
+function abrirModalPrestar(id, nombre) {
+    document.getElementById('prestar_equipo_id').value = id;
+    document.getElementById('prestar_equipo_nombre').innerText = nombre;
+    new bootstrap.Modal(document.getElementById('modalPrestar')).show();
+}
+
+function abrirModalDevolver(prestamoId, codigo) {
+    document.getElementById('devolver_prestamo_id').value = prestamoId;
+    document.getElementById('devolver_equipo_nombre').innerText = codigo;
+    new bootstrap.Modal(document.getElementById('modalDevolver')).show();
+}
+</script>
+{% endblock %}

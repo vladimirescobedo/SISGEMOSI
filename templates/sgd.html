@@ -1,0 +1,636 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Librerías de exportación en alta definición -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    .sgd-table th {
+        background-color: #d9e1f2 !important;
+        color: #000 !important;
+        font-size: 0.78rem;
+        vertical-align: middle;
+        text-align: center;
+        border: 1px solid #b8cce4;
+        padding: 0;
+        margin: 0;
+    }
+    .sgd-table th.th-fecha {
+        height: 110px;
+        width: 32px;
+        min-width: 32px;
+        max-width: 34px;
+        padding: 0 !important;
+        vertical-align: middle;
+        text-align: center;
+        background-color: #d9e1f2 !important;
+        border: 1px solid #b8cce4;
+    }
+    .th-fecha-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 110px;
+        width: 32px;
+        margin: 0 auto;
+        overflow: visible;
+    }
+    .rotar-fecha {
+        display: inline-block;
+        white-space: nowrap;
+        transform: rotate(-90deg);
+        transform-origin: center center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #000000;
+        line-height: 1;
+        letter-spacing: 0.3px;
+    }
+    .sgd-table td {
+        font-size: 0.8rem;
+        text-align: center;
+        vertical-align: middle;
+        border: 1px solid #d9d9d9;
+        padding: 3px 6px;
+    }
+    .sgd-table td.td-persona {
+        text-align: left;
+        font-weight: 600;
+        min-width: 250px;
+    }
+    .celda-valor {
+        background-color: #fce4d6 !important;
+        font-weight: bold;
+        color: #c00000;
+    }
+    .total-verde { background-color: #c6efce !important; color: #006100; font-weight: bold; }
+    .total-amarillo { background-color: #fff2cc !important; color: #9c6500; font-weight: bold; }
+    .total-rojo { background-color: #f8cbad !important; color: #c00000; font-weight: bold; }
+    .fila-total-pie td {
+        background-color: #d9e1f2 !important;
+        font-weight: bold;
+        border-top: 2px solid #000;
+    }
+    .progress-bar-custom {
+        height: 8px;
+        border-radius: 4px;
+    }
+</style>
+
+<!-- Barra Superior: Selector de Submódulos (NO LEÍDOS / RECIBIDOS) -->
+<div class="card shadow-sm border-0 mb-3 bg-white no-print">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3">
+            <h4 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-file-earmark-bar-graph-fill me-2 text-danger"></i>Monitor de SGD
+            </h4>
+            <div class="btn-group" role="group">
+                <a href="/sgd?tipo=NO_LEIDOS" class="btn {% if tipo_activo == 'NO_LEIDOS' %}btn-danger fw-bold{% else %}btn-outline-danger{% endif %} px-3 py-2">
+                    <i class="bi bi-envelope-x-fill me-1"></i> Documentos NO LEÍDOS
+                </a>
+                <a href="/sgd?tipo=RECIBIDOS" class="btn {% if tipo_activo == 'RECIBIDOS' %}btn-warning fw-bold text-dark{% else %}btn-outline-warning text-dark{% endif %} px-3 py-2">
+                    <i class="bi bi-inboxes-fill me-1"></i> Documentos RECIBIDOS
+                </a>
+            </div>
+        </div>
+
+        <!-- Botones de Acción / Descarga -->
+        <div class="d-flex flex-wrap gap-2">
+            {% if resultado %}
+            <button onclick="exportarTablaJPG()" class="btn btn-primary fw-bold shadow-sm">
+                <i class="bi bi-file-earmark-image me-1"></i> Exportar en JPG
+            </button>
+            <button onclick="exportarTablaPDF()" class="btn btn-danger fw-bold shadow-sm">
+                <i class="bi bi-file-earmark-pdf-fill me-1"></i> Exportar en PDF
+            </button>
+            <a href="/sgd/exportar-excel/{{ tipo_activo.lower() }}{% if corte_activo %}?corte_id={{ corte_activo.id }}{% endif %}" class="btn btn-success fw-bold shadow-sm">
+                <i class="bi bi-file-earmark-excel-fill me-1"></i> Exportar en Excel
+            </a>
+            {% endif %}
+            <button class="btn btn-outline-dark fw-bold shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#panelSubidaCorte">
+                <i class="bi bi-plus-circle-fill me-1 text-primary"></i> + Subir Nuevo Corte
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Barra de Historial de Cortes Guardados -->
+{% if cortes_historial %}
+<div class="card shadow-sm border-0 mb-4 bg-light no-print">
+    <div class="card-body py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-grow-1">
+            <span class="small fw-bold text-dark text-nowrap"><i class="bi bi-archive-fill text-primary me-1"></i> Historial de Cortes Guardados:</span>
+            <select class="form-select form-select-sm fw-bold bg-white text-dark w-auto" onchange="window.location.href='/sgd?tipo={{ tipo_activo }}&corte_id=' + this.value">
+                {% for c in cortes_historial %}
+                <option value="{{ c.id }}" {% if corte_activo and corte_activo.id == c.id %}selected{% endif %}>
+                    📅 Corte: {{ c.fecha_corte }} — ({{ c.gran_total }} docs / {{ c.total_trabajadores }} servidores) - [Subido: {{ c.creado_el }}]
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        {% if corte_activo and session.get('rol') == 'ADMIN' %}
+        <form action="/sgd/eliminar-corte/{{ corte_activo.id }}" method="POST" onsubmit="return confirm('¿Está seguro de eliminar este corte histórico del {{ corte_activo.fecha_corte }}?');">
+            <button type="submit" class="btn btn-outline-danger btn-sm py-1 px-2" title="Eliminar este corte del historial">
+                <i class="bi bi-trash"></i> Eliminar Corte
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Formulario Colapsable de Subida de Nuevo Corte -->
+<div class="collapse {% if not resultado %}show{% endif %} mb-4 no-print" id="panelSubidaCorte">
+    <div class="card shadow-sm border-0 bg-white">
+        <div class="card-header {% if tipo_activo == 'NO_LEIDOS' %}bg-danger{% else %}bg-warning text-dark{% endif %} text-white py-3">
+            <h5 class="mb-0 fw-bold">
+                <i class="bi bi-cloud-arrow-up-fill me-2"></i>Registrar Nuevo Corte de Documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }}
+            </h5>
+        </div>
+        <div class="card-body p-4">
+            <form action="/sgd/procesar/{{ tipo_activo.lower() }}" method="POST" enctype="multipart/form-data" class="row g-3 align-items-end">
+                <div class="col-lg-6 col-md-7">
+                    <label class="form-label fw-bold text-dark"><i class="bi bi-file-earmark-excel me-1"></i> Archivo Excel de {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }} (.xlsx / .xls) *</label>
+                    <input type="file" name="archivo_sgd" class="form-control" accept=".xlsx,.xls" required>
+                </div>
+                <div class="col-lg-3 col-md-5">
+                    <label class="form-label fw-bold text-dark"><i class="bi bi-clock-history me-1"></i> Fecha y Hora de Realización del Corte *</label>
+                    <input type="datetime-local" name="fecha_corte" class="form-control" value="{{ fecha_corte_input }}" readonly required>
+                </div>
+                <div class="col-lg-3 col-md-12">
+                    <button type="submit" class="btn {% if tipo_activo == 'NO_LEIDOS' %}btn-danger{% else %}btn-warning text-dark{% endif %} w-100 fw-bold py-2 shadow-sm">
+                        <i class="bi bi-save-fill me-1"></i> Guardar y Procesar Corte
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if resultado %}
+<!-- Tarjetas de Métricas -->
+<div class="row g-3 mb-4 no-print">
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle {% if tipo_activo == 'NO_LEIDOS' %}bg-danger bg-opacity-10 text-danger{% else %}bg-warning bg-opacity-10 text-warning{% endif %} p-3 me-3 fs-3">
+                    <i class="bi bi-envelope-x-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Total {{ "No Leídos" if tipo_activo == "NO_LEIDOS" else "Recibidos" }}</h6>
+                    <h3 class="fw-bold mb-0 {% if tipo_activo == 'NO_LEIDOS' %}text-danger{% else %}text-warning{% endif %}">{{ resultado.gran_total }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-primary bg-opacity-10 text-primary p-3 me-3 fs-3">
+                    <i class="bi bi-people-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Servidores en Lista</h6>
+                    <h3 class="fw-bold mb-0 text-primary">{{ resultado.total_trabajadores }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-warning bg-opacity-10 text-warning p-3 me-3 fs-3">
+                    <i class="bi bi-pie-chart-fill"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Concentración Top 10</h6>
+                    <h3 class="fw-bold mb-0 text-warning">{{ resultado.pct_top10 }}%</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0 bg-white">
+            <div class="card-body d-flex align-items-center">
+                <div class="rounded-circle bg-success bg-opacity-10 text-success p-3 me-3 fs-3">
+                    <i class="bi bi-calendar3"></i>
+                </div>
+                <div>
+                    <h6 class="text-muted mb-0">Días con Documentos</h6>
+                    <h3 class="fw-bold mb-0 text-success">{{ resultado.fechas|length }} fechas</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pestañas del Submódulo -->
+<div class="card shadow-sm border-0 mb-4 bg-white">
+    <div class="card-header bg-white border-bottom p-3">
+        <ul class="nav nav-pills" id="pills-sgd" role="tablist">
+            <li class="nav-item">
+                <button class="nav-link active fw-bold" id="tab-matriz" data-bs-toggle="pill" data-bs-target="#pills-matriz" type="button" role="tab">
+                    <i class="bi bi-table me-1 {% if tipo_activo == 'NO_LEIDOS' %}text-danger{% else %}text-warning{% endif %}"></i> 1. Tabla Dinámica Oficial ({{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }})
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fw-bold" id="tab-lista" data-bs-toggle="pill" data-bs-target="#pills-lista" type="button" role="tab">
+                    <i class="bi bi-person-lines-fill me-1 text-primary"></i> 2. Lista de Trabajadores ({{ resultado.total_trabajadores }})
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fw-bold" id="tab-dashboard" data-bs-toggle="pill" data-bs-target="#pills-dashboard" type="button" role="tab">
+                    <i class="bi bi-graph-up-arrow me-1 text-success"></i> 3. Dashboard & Análisis Ejecutivo
+                </button>
+            </li>
+        </ul>
+    </div>
+
+    <div class="card-body p-0">
+        <div class="tab-content" id="pills-sgdContent">
+            
+            <!-- SECCIÓN 1: TABLA DINÁMICA OFICIAL -->
+            <div class="tab-pane fade show active p-3" id="pills-matriz" role="tabpanel">
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 no-print">
+                    <div class="d-flex gap-2">
+                        <button onclick="exportarTablaJPG()" class="btn btn-sm btn-primary fw-bold shadow-sm">
+                            <i class="bi bi-file-earmark-image me-1"></i> Descargar JPG
+                        </button>
+                        <button onclick="exportarTablaPDF()" class="btn btn-sm btn-danger fw-bold shadow-sm">
+                            <i class="bi bi-file-earmark-pdf-fill me-1"></i> Descargar PDF
+                        </button>
+                        <a href="/sgd/exportar-excel/{{ tipo_activo.lower() }}{% if corte_activo %}?corte_id={{ corte_activo.id }}{% endif %}" class="btn btn-sm btn-success fw-bold shadow-sm">
+                            <i class="bi bi-file-earmark-excel me-1"></i> Descargar Excel (.xlsx)
+                        </a>
+                    </div>
+                    <input type="text" class="form-control form-control-sm w-auto" placeholder="Buscar trabajador..." onkeyup="filtrarTablaDinamica(this.value)">
+                </div>
+
+                <div class="p-3 bg-white border rounded" id="contenedorTablaSGD">
+                    <div class="text-center mb-3">
+                        <h5 class="fw-bold text-dark mb-0">REPORTE DE DOCUMENTOS EN ESTADO "{{ "NO LEIDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }}" EN EL SGD AL CORTE {{ fecha_corte }}</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm sgd-table align-middle mb-0" id="tablaSGDOficial">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; padding-left: 8px; width: 250px;">DESTINATARIO</th>
+                                    {% for f in resultado.fechas %}
+                                    <th class="th-fecha">
+                                        <div class="th-fecha-wrapper">
+                                            <span class="rotar-fecha">{{ f }}</span>
+                                        </div>
+                                    </th>
+                                    {% endfor %}
+                                    <th style="width: 70px;">Total general</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in resultado.destinatarios %}
+                                {% set tot_p = resultado.totales_destinatario.get(p, 0) %}
+                                <tr>
+                                    <td class="td-persona">{{ p }}</td>
+                                    {% for f in resultado.fechas %}
+                                    {% set cant = resultado.matriz.get(p, {}).get(f, '') %}
+                                    <td class="{% if cant %}celda-valor{% endif %}">{{ cant or '' }}</td>
+                                    {% endfor %}
+                                    <td class="{% if tot_p <= 3 %}total-verde{% elif tot_p <= 10 %}total-amarillo{% else %}total-rojo{% endif %}">
+                                        {{ tot_p }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="fila-total-pie">
+                                    <td style="text-align: left; padding-left: 8px;">Total general</td>
+                                    {% for f in resultado.fechas %}
+                                    <td>{{ resultado.totales_fecha.get(f, 0) }}</td>
+                                    {% endfor %}
+                                    <td>{{ resultado.gran_total }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 2: LISTA DE TRABAJADORES -->
+            <div class="tab-pane fade p-3" id="pills-lista" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold text-dark mb-0"><i class="bi bi-people-fill me-2 text-primary"></i>Padrón de Servidores con Expedientes {{ "No Leídos" if tipo_activo == "NO_LEIDOS" else "Recibidos" }}</h6>
+                    <input type="text" id="filtroListaTrabajadores" class="form-control form-control-sm w-25" placeholder="Buscar por nombre..." onkeyup="filtrarListaTrabajadoresTexto(this.value)">
+                </div>
+
+                <div class="table-responsive border rounded">
+                    <table class="table table-hover table-striped align-middle mb-0" id="tablaListaTrabajadores">
+                        <thead class="table-dark">
+                            <tr>
+                                <th style="width: 7%;" class="text-center">#</th>
+                                <th style="width: 48%;">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <span>Trabajador (DESTINATARIO)</span>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-outline-light btn-sm py-0 px-2 fw-bold" onclick="ordenarListaTrabajadores('nombre', 'asc')" title="A a Z">A ➔ Z</button>
+                                            <button type="button" class="btn btn-outline-light btn-sm py-0 px-2 fw-bold" onclick="ordenarListaTrabajadores('nombre', 'desc')" title="Z a A">Z ➔ A</button>
+                                        </div>
+                                    </div>
+                                </th>
+                                <th style="width: 20%;" class="text-center">
+                                    <div class="d-flex align-items-center justify-content-center gap-2">
+                                        <span>{{ "No Leídos" if tipo_activo == "NO_LEIDOS" else "Recibidos" }}</span>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-danger btn-sm py-0 px-2 fw-bold" onclick="ordenarListaTrabajadores('cantidad', 'desc')" title="Mayor a Menor">Mayor ▼</button>
+                                            <button type="button" class="btn btn-success btn-sm py-0 px-2 fw-bold" onclick="ordenarListaTrabajadores('cantidad', 'asc')" title="Menor a Mayor">Menor ▲</button>
+                                        </div>
+                                    </div>
+                                </th>
+                                <th style="width: 13%;" class="text-center">% del Total</th>
+                                <th style="width: 12%;" class="text-center">Nivel de Carga</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyListaTrabajadores">
+                            {% for p, cant in resultado.ranking_descendente %}
+                            {% set pct_p = (cant / resultado.gran_total * 100)|round(1) %}
+                            <tr data-nombre="{{ p }}" data-cantidad="{{ cant }}">
+                                <td class="text-center col-indice"><strong>#{{ loop.index }}</strong></td>
+                                <td class="fw-bold text-dark col-nombre">{{ p }}</td>
+                                <td class="text-center col-cantidad">
+                                    <strong class="fs-5 {% if cant > 10 %}text-danger{% elif cant > 3 %}text-warning{% else %}text-success{% endif %}">{{ cant }}</strong>
+                                </td>
+                                <td class="text-center">
+                                    <span class="text-muted fw-bold">{{ pct_p }}%</span>
+                                </td>
+                                <td class="text-center">
+                                    {% if cant > 10 %}
+                                        <span class="badge bg-danger px-3 py-2">ALTA</span>
+                                    {% elif cant > 3 %}
+                                        <span class="badge bg-warning text-dark px-3 py-2">MEDIA</span>
+                                    {% else %}
+                                        <span class="badge bg-success px-3 py-2">LEVE</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 3: DASHBOARD & ANÁLISIS EJECUTIVO -->
+            <div class="tab-pane fade p-4" id="pills-dashboard" role="tabpanel">
+                <div class="row g-4">
+                    
+                    <!-- Ranking Top con Ordenamiento -->
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm bg-light p-3 h-100">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 border-bottom pb-2">
+                                <h5 class="fw-bold text-danger mb-0"><i class="bi bi-trophy-fill me-2"></i>Ranking de Carga por Servidor</h5>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-danger btn-sm fw-bold" onclick="ordenarDashboardTop('cant', 'desc')">Mayor ▼</button>
+                                    <button type="button" class="btn btn-outline-success btn-sm fw-bold" onclick="ordenarDashboardTop('cant', 'asc')">Menor ▲</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="ordenarDashboardTop('nombre', 'asc')">A ➔ Z</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="ordenarDashboardTop('nombre', 'desc')">Z ➔ A</button>
+                                </div>
+                            </div>
+
+                            <ul class="list-group list-group-flush rounded" id="listaDashboardTop">
+                                {% for item in resultado.top_10 %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center py-2 bg-white mb-1 rounded border item-dashboard-top"
+                                    data-nombre="{{ item.nombre }}" data-cant="{{ item.cant }}">
+                                    <div class="w-75">
+                                        <div class="d-flex justify-content-between">
+                                            <strong class="item-nombre-pos">#{{ item.pos }}. {{ item.nombre }}</strong>
+                                            <span class="text-muted small">{{ item.pct }}%</span>
+                                        </div>
+                                        <div class="progress progress-bar-custom mt-1">
+                                            <div class="progress-bar {% if item.cant > 10 %}bg-danger{% elif item.cant > 3 %}bg-warning{% else %}bg-success{% endif %}" role="progressbar" style="width: {{ item.pct }}%;"></div>
+                                        </div>
+                                    </div>
+                                    <span class="badge {% if item.cant > 10 %}bg-danger{% elif item.cant > 3 %}bg-warning text-dark{% else %}bg-success{% endif %} fs-6 rounded-pill px-3 py-2 ms-2">{{ item.cant }} docs</span>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Clasificación por Antigüedad -->
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm bg-light p-3 h-100">
+                            <h5 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="bi bi-hourglass-split me-2"></i>Clasificación de Documentos por Antigüedad</h5>
+                            <p class="small text-muted mb-3">Distribución temporal calculada a la fecha de corte <strong>{{ fecha_corte }}</strong>:</p>
+                            
+                            <div class="d-flex flex-column gap-3 mb-4">
+                                {% for rango, info in resultado.rangos_antiguedad.items() %}
+                                <div class="bg-white p-3 rounded border">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <strong class="text-dark">{{ rango }}</strong>
+                                        <div>
+                                            <span class="badge bg-{{ info.color }} fs-6 me-2">{{ info.cant }} docs</span>
+                                            <span class="text-muted fw-bold">{{ info.pct }}%</span>
+                                        </div>
+                                    </div>
+                                    <div class="progress progress-bar-custom">
+                                        <div class="progress-bar bg-{{ info.color }}" role="progressbar" style="width: {{ info.pct }}%;"></div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+
+                            <div class="alert alert-warning small mb-0">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>Diagnóstico:</strong> El Top 10 concentra <strong>{{ resultado.suma_top10 }}</strong> de los <strong>{{ resultado.gran_total }}</strong> documentos {{ "no leídos" if tipo_activo == "NO_LEIDOS" else "recibidos" }} ({{ resultado.pct_top10 }}%).
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Desglose por Fechas -->
+                    <div class="col-12">
+                        <div class="card border-0 shadow-sm bg-light p-3">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 border-bottom pb-2">
+                                <h5 class="fw-bold text-dark mb-0"><i class="bi bi-calendar-range-fill me-2 text-info"></i>Distribución de Documentos por Fecha de Emisión</h5>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" onclick="ordenarDashboardFechas('fecha', 'asc')">Fecha ▲</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" onclick="ordenarDashboardFechas('fecha', 'desc')">Fecha ▼</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="ordenarDashboardFechas('cant', 'desc')">Mayor Carga ▼</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="ordenarDashboardFechas('cant', 'asc')">Menor Carga ▲</button>
+                                </div>
+                            </div>
+                            
+                            <div class="row g-2" id="contenedorDashboardFechas">
+                                {% for fd in resultado.fechas_detalle %}
+                                <div class="col-lg-3 col-md-4 col-sm-6 item-dashboard-fecha" data-fecha="{{ fd.fecha }}" data-cant="{{ fd.cant }}">
+                                    <div class="bg-white p-2 rounded border d-flex justify-content-between align-items-center">
+                                        <small class="fw-bold text-dark"><i class="bi bi-calendar3 me-1 text-primary"></i>{{ fd.fecha }}</small>
+                                        <div>
+                                            <span class="badge bg-primary me-1">{{ fd.cant }}</span>
+                                            <small class="text-muted fw-bold">{{ fd.pct }}%</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+function exportarTablaJPG() {
+    const elemento = document.getElementById('contenedorTablaSGD');
+    if (!elemento) return;
+
+    html2canvas(elemento, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true
+    }).then(canvas => {
+        const enlace = document.createElement('a');
+        enlace.download = 'Reporte_SGD_{{ tipo_activo }}.jpg';
+        enlace.href = canvas.toDataURL('image/jpeg', 0.98);
+        enlace.click();
+    });
+}
+
+function exportarTablaPDF() {
+    const elemento = document.getElementById('contenedorTablaSGD');
+    if (!elemento) return;
+
+    const opciones = {
+        margin: 8,
+        filename: 'Reporte_SGD_{{ tipo_activo }}.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+    };
+    html2pdf().set(opciones).from(elemento).save();
+}
+
+function filtrarTablaDinamica(texto) {
+    let filtro = texto.toLowerCase().trim();
+    let filas = document.querySelectorAll('#tablaSGDOficial tbody tr:not(.fila-total-pie)');
+    filas.forEach(f => {
+        let celda = f.querySelector('.td-persona');
+        if (celda) {
+            let nombre = celda.innerText.toLowerCase();
+            f.style.display = (filtro === '' || nombre.includes(filtro)) ? '' : 'none';
+        }
+    });
+}
+
+function filtrarListaTrabajadoresTexto(texto) {
+    let filtro = texto.toLowerCase().trim();
+    let filas = document.querySelectorAll('#tbodyListaTrabajadores tr');
+    filas.forEach(f => {
+        let nombre = (f.getAttribute('data-nombre') || '').toLowerCase();
+        f.style.display = (filtro === '' || nombre.includes(filtro)) ? '' : 'none';
+    });
+}
+
+function ordenarListaTrabajadores(criterio, direccion) {
+    const tbody = document.getElementById('tbodyListaTrabajadores');
+    const filas = Array.from(tbody.querySelectorAll('tr'));
+
+    filas.sort((a, b) => {
+        if (criterio === 'nombre') {
+            let nA = a.getAttribute('data-nombre') || '';
+            let nB = b.getAttribute('data-nombre') || '';
+            return direccion === 'asc' 
+                ? nA.localeCompare(nB, 'es', { sensitivity: 'base' })
+                : nB.localeCompare(nA, 'es', { sensitivity: 'base' });
+        } else if (criterio === 'cantidad') {
+            let cA = parseInt(a.getAttribute('data-cantidad') || '0');
+            let cB = parseInt(b.getAttribute('data-cantidad') || '0');
+            return direccion === 'asc' ? (cA - cB) : (cB - cA);
+        }
+        return 0;
+    });
+
+    tbody.innerHTML = '';
+    filas.forEach((f, idx) => {
+        let celdaIndice = f.querySelector('.col-indice');
+        if (celdaIndice) {
+            celdaIndice.innerHTML = `<strong>#${idx + 1}</strong>`;
+        }
+        tbody.appendChild(f);
+    });
+
+    let textoBusqueda = document.getElementById('filtroListaTrabajadores').value;
+    if (textoBusqueda) {
+        filtrarListaTrabajadoresTexto(textoBusqueda);
+    }
+}
+
+function ordenarDashboardTop(criterio, direccion) {
+    const lista = document.getElementById('listaDashboardTop');
+    const items = Array.from(lista.querySelectorAll('.item-dashboard-top'));
+
+    items.sort((a, b) => {
+        if (criterio === 'nombre') {
+            let nA = a.getAttribute('data-nombre') || '';
+            let nB = b.getAttribute('data-nombre') || '';
+            return direccion === 'asc' 
+                ? nA.localeCompare(nB, 'es', { sensitivity: 'base' })
+                : nB.localeCompare(nA, 'es', { sensitivity: 'base' });
+        } else if (criterio === 'cant') {
+            let cA = parseInt(a.getAttribute('data-cant') || '0');
+            let cB = parseInt(b.getAttribute('data-cant') || '0');
+            return direccion === 'asc' ? (cA - cB) : (cB - cA);
+        }
+        return 0;
+    });
+
+    lista.innerHTML = '';
+    items.forEach((it, idx) => {
+        let spanPos = it.querySelector('.item-nombre-pos');
+        let nombre = it.getAttribute('data-nombre');
+        if (spanPos) {
+            spanPos.innerText = `#${idx + 1}. ${nombre}`;
+        }
+        lista.appendChild(it);
+    });
+}
+
+function ordenarDashboardFechas(criterio, direccion) {
+    const contenedor = document.getElementById('contenedorDashboardFechas');
+    const items = Array.from(contenedor.querySelectorAll('.item-dashboard-fecha'));
+
+    items.sort((a, b) => {
+        if (criterio === 'fecha') {
+            let fA = a.getAttribute('data-fecha') || '';
+            let fB = b.getAttribute('data-fecha') || '';
+            let parseKey = (f) => {
+                let p = f.split('/');
+                return p.length === 3 ? (p + p + p[0]) : f;
+            };
+            let kA = parseKey(fA);
+            let kB = parseKey(fB);
+            return direccion === 'asc' ? kA.localeCompare(kB) : kB.localeCompare(kA);
+        } else if (criterio === 'cant') {
+            let cA = parseInt(a.getAttribute('data-cant') || '0');
+            let cB = parseInt(b.getAttribute('data-cant') || '0');
+            return direccion === 'asc' ? (cA - cB) : (cB - cA);
+        }
+        return 0;
+    });
+
+    contenedor.innerHTML = '';
+    items.forEach(it => contenedor.appendChild(it));
+}
+</script>
+{% endblock %}

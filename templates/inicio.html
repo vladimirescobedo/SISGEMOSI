@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    .card-modulo {
+        transition: transform 0.25s ease, box-shadow 0.25s ease;
+        border-radius: 20px;
+        cursor: pointer;
+        text-decoration: none !important;
+    }
+    .card-modulo:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 16px 32px rgba(0,0,0,0.15) !important;
+    }
+    .icono-modulo {
+        width: 85px;
+        height: 85px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2.6rem;
+        margin: 0 auto 15px auto;
+    }
+</style>
+
+<!-- Banner Institucional -->
+<div class="p-4 mb-4 bg-white rounded-4 shadow-sm border text-center">
+    <div class="d-inline-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-primary px-3 py-1 fs-6">PROGRAMA NACIONAL DE ALIMENTACIÓN ESCOLAR - PAE</span>
+        <span class="badge bg-warning text-dark px-3 py-1 fs-6 fw-bold">UT APURÍMAC</span>
+    </div>
+    <h3 class="fw-bold text-dark mb-1">SISTEMA DE GESTIÓN DE MÓDULOS DE SOPORTE INFORMÁTICO UT APURÍMAC</h3>
+    <h5 class="text-primary fw-bold mb-2">SISGEMOSI - UT - PAE</h5>
+    <p class="text-muted fs-6 mb-0">Portal institucional unificado para el control patrimonial, padrón de personal, bitácora TI y monitoreo de expedientes SGD.</p>
+</div>
+
+<!-- Módulos Principales -->
+<div class="row g-4 justify-content-center">
+    
+    <!-- 1. SISTEMA DE PRÉSTAMO DE EQUIPOS -->
+    <div class="col-lg-3 col-md-6">
+        <a href="/prestamos" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-primary bg-opacity-10 text-primary">
+                        <i class="bi bi-laptop"></i>
+                    </div>
+                    <h5 class="fw-bold text-primary mb-2">PRÉSTAMO DE EQUIPOS</h5>
+                    <p class="text-muted small">
+                        Control patrimonial de <strong>Móviles</strong>, <strong>Tokens</strong> e <strong>Informáticos</strong> con actas Word automáticas.
+                    </p>
+                </div>
+                <div class="mt-3 pt-2 border-top d-flex justify-content-around">
+                    <span class="badge bg-light text-dark border">{{ total_equipos }} Bienes</span>
+                    <span class="badge bg-danger">{{ equipos_prestamo }} Prestados</span>
+                </div>
+                <div class="btn btn-primary btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- 2. SISTEMA DE REGISTRO DEL PERSONAL -->
+    <div class="col-lg-3 col-md-6">
+        <a href="/trabajadores" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-info bg-opacity-10 text-dark">
+                        <i class="bi bi-people-fill text-info"></i>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-2">PADRÓN DE PERSONAL</h5>
+                    <p class="text-muted small">
+                        Registro y padrón de servidores de la UT Apurímac con exportación a Excel.
+                    </p>
+                </div>
+                <div class="mt-3 pt-2 border-top">
+                    <span class="badge bg-info bg-opacity-10 text-dark border border-info py-2 px-3">
+                        <i class="bi bi-person-check-fill me-1"></i> {{ total_personal }} Trabajadores
+                    </span>
+                </div>
+                <div class="btn btn-info text-dark btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- 3. SISTEMA DE REGISTRO DE ACTIVIDADES (SOPORTE TI) -->
+    <div class="col-lg-3 col-md-6">
+        <a href="/actividades" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-warning bg-opacity-10 text-warning">
+                        <i class="bi bi-calendar-check-fill"></i>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-2">ACTIVIDADES TI (TASKS)</h5>
+                    <p class="text-muted small">
+                        Bitácora diaria, sincronización con Google Calendar y reportes mensuales.
+                    </p>
+                </div>
+                <div class="mt-3 pt-2 border-top d-flex justify-content-around">
+                    <span class="badge bg-warning text-dark">{{ tareas_pendientes }} Pendientes</span>
+                    <span class="badge bg-primary">{{ tareas_hoy }} Hoy</span>
+                </div>
+                <div class="btn btn-warning text-dark btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- 4. MONITOR Y REPORTE SGD (NUEVO) -->
+    <div class="col-lg-3 col-md-6">
+        <a href="/sgd" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-danger bg-opacity-10 text-danger">
+                        <i class="bi bi-file-earmark-bar-graph-fill"></i>
+                    </div>
+                    <h5 class="fw-bold text-danger mb-2">MONITOR DE SGD</h5>
+                    <p class="text-muted small">
+                        Matrices de documentos <strong>No Leídos</strong> y <strong>Recibidos</strong> con ranking y diagnóstico inteligente.
+                    </p>
+                </div>
+                <div class="mt-3 pt-2 border-top">
+                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger py-2 px-3">
+                        <i class="bi bi-lightning-charge-fill me-1"></i> Análisis de Carga SGD
+                    </span>
+                </div>
+                <div class="btn btn-danger btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>
+
+</div>
+{% endblock %}
