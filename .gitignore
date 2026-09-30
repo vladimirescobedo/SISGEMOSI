@@ -1,0 +1,35 @@
+# Entorno virtual
+venv/
+__pycache__/
+*.pyc
+
+# Bases de datos con datos
+*.db
+
+# Archivos generados
+actas_generadas/*.docx
+uploads/
+uploads_documentos/
+uploads_sgd/
+
+# Logs
+*.log
+
+# Backups
+backups/
+
+# Archivos comprimidos
+*.rar
+*.zip
+
+# Certificados locales
+certificados/
+
+# Scripts Windows (no se usan en la nube)
+*.bat
+*.vbs
+.copilotignore
+
+# IDE
+.vscode/
+.gemini/

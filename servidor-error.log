@@ -1,0 +1,32 @@
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on https://127.0.0.1:5000
+ * Running on https://10.5.3.116:5000
+Press CTRL+C to quit
+127.0.0.1 - - [04/Sep/2026 15:16:43] "GET /login HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:16:45] "GET /login HTTP/1.1" 200 -
+10.5.3.116 - - [04/Sep/2026 15:16:45] "GET /login HTTP/1.1" 200 -
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on https://127.0.0.1:5000
+ * Running on https://10.5.3.116:5000
+Press CTRL+C to quit
+127.0.0.1 - - [04/Sep/2026 15:18:00] "GET / HTTP/1.1" 302 -
+127.0.0.1 - - [04/Sep/2026 15:18:00] "GET /login HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:18:01] "GET /static/fondo-login.jpg HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:18:01] "GET /static/logo-pae.svg?v=2 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:18:02] "GET /static/logo-pae.svg?v=2 HTTP/1.1" 304 -
+127.0.0.1 - - [04/Sep/2026 15:18:06] "POST /login HTTP/1.1" 302 -
+127.0.0.1 - - [04/Sep/2026 15:18:06] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:18:07] "GET /static/logo-pae.svg?v=2 HTTP/1.1" 304 -
+127.0.0.1 - - [04/Sep/2026 15:18:13] "GET /actividades HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:18:13] "GET /api/actividades-calendario?start=2026-08-30T00:00:00-05:00&end=2026-10-11T00:00:00-05:00 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 15:18:13] "GET /static/logo-pae.svg?v=2 HTTP/1.1" 304 -
+127.0.0.1 - - [04/Sep/2026 17:29:07] "GET /actividades HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 17:29:07] "GET /static/logo-pae.svg?v=2 HTTP/1.1" 200 -
+127.0.0.1 - - [04/Sep/2026 17:29:08] "GET /api/actividades-calendario?start=2026-08-30T00:00:00-05:00&end=2026-10-11T00:00:00-05:00 HTTP/1.1" 200 -
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on https://127.0.0.1:5000
+ * Running on https://10.5.3.116:5000
+Press CTRL+C to quit

@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    .card-submodulo {
+        border-radius: 18px;
+        transition: transform 0.25s ease, box-shadow 0.25s ease;
+        text-decoration: none !important;
+    }
+    .card-submodulo:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 12px 24px rgba(0,0,0,0.12) !important;
+    }
+    .numero-doc {
+        font-family: 'Segoe UI', sans-serif;
+        letter-spacing: 0.02em;
+    }
+</style>
+
+<!-- Breadcrumb -->
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Gestión Documentaria</span>
+</nav>
+
+<div class="card shadow-sm border-0 p-4 mb-4 bg-white">
+    <div class="row align-items-center">
+        <div class="col-lg-8">
+            <h3 class="fw-bold text-dark mb-1"><i class="bi bi-folder-check me-2 text-success"></i>GESTIÓN DOCUMENTARIA</h3>
+            <p class="text-muted mb-0">Administra numeración, historial de cartas e informes, además del registro y análisis de memorandos y comunicaciones dirigidas al área.</p>
+        </div>
+        <div class="col-lg-4 text-lg-end mt-3 mt-lg-0">
+            <div class="d-flex flex-column gap-2 align-items-lg-end">
+                <span class="badge bg-success text-white p-2 fs-6">
+                    <i class="bi bi-shield-check me-1"></i>
+                    Patrón actual: {{ document_number_config.patron|replace('{tipo}', 'CARTA')|replace('{numero:03d}', '001')|replace('{year}', document_number_config.year|string)|replace('{sufijo}', document_number_config.sufijo) }}
+                </span>
+                <div class="d-flex gap-2 flex-wrap justify-content-lg-end">
+                    <button type="button" class="btn btn-primary fw-bold shadow-sm" data-bs-toggle="collapse" data-bs-target="#panelGenerarTDR">
+                        <i class="bi bi-file-earmark-word-fill me-1"></i> Generar Informe TDR (.docx)
+                    </button>
+                    <a href="/gestion-documentaria/exportar-excel" class="btn btn-success fw-bold">
+                        <i class="bi bi-file-earmark-excel-fill me-1"></i> Exportar Excel
+                    </a>
+                    <a href="/gestion-documentaria/exportar-pdf" class="btn btn-danger fw-bold">
+                        <i class="bi bi-file-earmark-pdf-fill me-1"></i> Exportar PDF
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Panel Destacado: Generador de Carta e Informe Mensual TDR -->
+<div class="collapse show mb-4" id="panelGenerarTDR">
+    <div class="card shadow border-0 bg-white" style="border-left: 5px solid #0d6efd !important;">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center">
+                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary p-3 me-3 fs-3">
+                        <i class="bi bi-file-earmark-word-fill"></i>
+                    </div>
+                    <div>
+                        <h4 class="fw-bold mb-1 text-primary">Generador Automático de Carta e Informe Mensual TDR</h4>
+                        <p class="text-muted small mb-0">Genera tu documento Word oficial (`.docx`) para trámite de pago con numeración correlativa automática.</p>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-2 mt-md-0">
+                    <span class="badge bg-primary fs-6 px-3 py-2">Siguiente: Carta {{ "%03d"|format(siguiente_carta) }}</span>
+                    <span class="badge bg-info text-dark fs-6 px-3 py-2">Informe {{ "%03d"|format(siguiente_informe) }}</span>
+                </div>
+            </div>
+
+            <form action="/gestion-documentaria/generar-informe-docx" method="POST" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small"><i class="bi bi-hash me-1 text-primary"></i>N° de Carta</label>
+                    <input type="number" class="form-control" name="numero_carta" value="{{ siguiente_carta }}" min="1" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small"><i class="bi bi-hash me-1 text-info"></i>N° de Informe</label>
+                    <input type="number" class="form-control" name="numero_informe" value="{{ siguiente_informe }}" min="1" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small"><i class="bi bi-card-checklist me-1 text-primary"></i>N° Orden de Servicio</label>
+                    <input type="text" class="form-control" name="numero_os" value="0005612" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small"><i class="bi bi-calendar-event me-1 text-primary"></i>Fecha de Emisión</label>
+                    <input type="date" class="form-control" name="fecha_emision" value="{{ fecha_hoy }}" required>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small"><i class="bi bi-calendar-range me-1 text-muted"></i>Periodo de Ejecución (Desde)</label>
+                    <input type="date" class="form-control" name="periodo_desde">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small"><i class="bi bi-calendar-range me-1 text-muted"></i>Periodo de Ejecución (Hasta)</label>
+                    <input type="date" class="form-control" name="periodo_hasta">
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="guardar_en_bd" value="1" id="checkGuardarBD" checked>
+                        <label class="form-check-label small fw-bold text-dark" for="checkGuardarBD">
+                            Registrar Carta e Informe en el historial
+                        </label>
+                    </div>
+                </div>
+
+                <div class="col-12 mt-3">
+                    <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold py-3 shadow">
+                        <i class="bi bi-download me-2"></i> Generar y Descargar Carta + Informe Mensual (.docx)
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 p-4 mb-4 bg-white">
+    <div class="d-flex align-items-center mb-3">
+        <div class="rounded-circle bg-dark bg-opacity-10 text-dark p-3 me-3 fs-3">
+            <i class="bi bi-sliders"></i>
+        </div>
+        <div>
+            <h4 class="fw-bold mb-1 text-dark">Configurar patrón documental</h4>
+            <small class="text-muted">Puedes cambiar el año y el sufijo en cualquier momento. El sistema sigue la numeración correlativa desde 001.</small>
+        </div>
+    </div>
+
+    <form action="/gestion-documentaria/configuracion" method="POST" class="row g-3 align-items-end">
+        <div class="col-md-6">
+            <label class="form-label fw-bold"><i class="bi bi-braces me-1 text-primary"></i>Patrón</label>
+            <input type="text" class="form-control" name="patron" value="{{ document_number_config.patron }}" placeholder="{tipo} N° {numero:03d}-{year}-{sufijo}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold"><i class="bi bi-calendar3 me-1 text-primary"></i>Año</label>
+            <input type="number" class="form-control" name="year" value="{{ document_number_config.year }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold"><i class="bi bi-tag me-1 text-primary"></i>Sufijo</label>
+            <input type="text" class="form-control" name="sufijo" value="{{ document_number_config.sufijo }}">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-dark w-100 fw-bold">
+                <i class="bi bi-save me-1"></i> Guardar
+            </button>
+        </div>
+    </form>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-12">
+        <div class="card card-submodulo h-100 border-0 shadow p-4 bg-white text-dark">
+            <div class="card-body">
+                <div class="d-flex align-items-center mb-3">
+                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary p-3 me-3 fs-3">
+                        <i class="bi bi-journal-text"></i>
+                    </div>
+                    <div>
+                        <h4 class="fw-bold mb-1 text-primary">1. Cartas e Informes Registrados</h4>
+                        <small class="text-muted">Control de numeración y historial documental</small>
+                    </div>
+                </div>
+
+                <form action="/gestion-documentaria/guardar" method="POST" enctype="multipart/form-data" class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Tipo</label>
+                        <select class="form-select" name="tipo_documento" required>
+                            <option value="CARTA">CARTA</option>
+                            <option value="INFORME">INFORME</option>
+                            <option value="MEMORANDO">MEMORANDO</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold"><i class="bi bi-hash me-1 text-primary"></i>Número</label>
+                        <input type="text" class="form-control" name="numero" placeholder="Ejemplo: CARTA N° 001-2026-VCEM-SI">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold"><i class="bi bi-card-heading me-1 text-primary"></i>Título</label>
+                        <input type="text" class="form-control" name="titulo" placeholder="Ejemplo: Carta sobre solicitud de información" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold"><i class="bi bi-person-up me-1 text-primary"></i>Remitente</label>
+                        <input type="text" class="form-control" name="remitente" placeholder="Área / persona">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold"><i class="bi bi-person-down me-1 text-primary"></i>Destinatario</label>
+                        <input type="text" class="form-control" name="destinatario" placeholder="Área / persona">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold"><i class="bi bi-calendar-event me-1 text-primary"></i>Fecha emisión</label>
+                        <input type="date" class="form-control" name="fecha_emision" value="">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold"><i class="bi bi-bullseye me-1 text-primary"></i>Requerimiento</label>
+                        <input type="text" class="form-control" name="requerimiento" placeholder="¿Qué solicita?">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold"><i class="bi bi-question-circle me-1 text-primary"></i>¿Para qué se usó esta carta o informe?</label>
+                        <textarea class="form-control" name="uso_documento" rows="2" placeholder="Ejemplo: Se usó para responder la solicitud de información del área de logística y apoyar la resolución del caso."></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold"><i class="bi bi-card-text me-1 text-primary"></i>Descripción / contenido</label>
+                        <textarea class="form-control" name="contenido_texto" rows="3" placeholder="Detalle breve del documento o requerimiento"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold"><i class="bi bi-paperclip me-1 text-primary"></i>Adjuntar archivo</label>
+                        <input type="file" class="form-control" name="archivo_documento" accept=".pdf,.doc,.docx,.txt,.xlsx,.xls,.png,.jpg,.jpeg">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary fw-bold w-100">
+                            <i class="bi bi-plus-circle-fill me-1"></i> Registrar documento
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 bg-white">
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>Historial de documentos</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-secondary">
+                    <tr>
+                        <th><i class="bi bi-file-earmark-text me-1"></i>Tipo</th>
+                        <th><i class="bi bi-hash me-1"></i>Número</th>
+                        <th><i class="bi bi-card-heading me-1"></i>Título</th>
+                        <th><i class="bi bi-bullseye me-1"></i>Requerimiento</th>
+                        <th>Uso</th>
+                        <th>Fecha</th>
+                        <th>Archivo</th>
+                        <th>Resumen Gemini</th>
+                        <th class="text-center" style="width: 80px;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if documentos %}
+                        {% for d in documentos %}
+                        <tr>
+                            <td><span class="badge bg-primary">{{ d.tipo_documento }}</span></td>
+                            <td class="numero-doc fw-bold text-dark">{{ d.numero or 'SIN NUM.' }}</td>
+                            <td>{{ d.titulo }}</td>
+                            <td>{{ d.requerimiento or d.descripcion or '-' }}</td>
+                            <td>{{ d.uso_documento or '-' }}</td>
+                            <td>{{ d.fecha_emision or '-' }}</td>
+                            <td>
+                                {% if d.archivo_nombre %}
+                                    <span class="badge bg-success">{{ d.archivo_nombre }}</span>
+                                {% else %}
+                                    <span class="text-muted">Sin archivo</span>
+                                {% endif %}
+                            </td>
+                            <td class="small text-muted">
+                                {{ d.resumen_gemini or 'Sin análisis disponible' }}
+                            </td>
+                            <td class="text-center">
+                                <form method="POST" action="/gestion-documentaria/eliminar/{{ d.id }}" onsubmit="return confirm('¿Está seguro de eliminar este documento del historial?');" style="margin:0;">
+                                    <button type="submit" class="btn btn-danger btn-sm px-2 py-1" data-bs-toggle="tooltip" title="Eliminar documento del historial">
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4">
+                                <i class="bi bi-inbox me-2"></i>No hay documentos registrados aún.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

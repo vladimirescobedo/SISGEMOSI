@@ -103,6 +103,7 @@
             {% endwith %}
 
             <form action="/login" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label class="form-label fw-bold text-dark"><i class="bi bi-person-fill text-primary me-1"></i> Usuario</label>
                     <div class="input-group">
@@ -124,11 +125,6 @@
                     <i class="bi bi-box-arrow-in-right me-2"></i> Ingresar al Sistema
                 </button>
             </form>
-
-            <div class="alert alert-light border text-center mt-4 mb-0 py-2">
-                <small class="text-muted d-block">Acceso inicial predeterminado:</small>
-                <small class="fw-bold text-dark">Usuario: <span class="text-primary">administrador</span> | Clave: <span class="text-primary">administrador</span></small>
-            </div>
         </div>
 
         <div class="card-footer bg-light text-center py-2 border-top">

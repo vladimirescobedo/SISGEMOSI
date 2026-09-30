@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-center py-5" style="min-height: 70vh;">
+    <div class="col-12 col-sm-10 col-md-8 col-lg-6 col-xl-5">
+        <div class="card shadow-lg border-0 rounded-4 text-center overflow-hidden" style="background-color: var(--sis-surface, rgba(255, 255, 255, 0.94)); border-top: 6px solid #075985 !important;">
+            <div class="card-body p-4 p-md-5">
+                <div class="mb-4">
+                    <div class="d-inline-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 84px; height: 84px; background-color: rgba(7, 89, 133, 0.08); border: 2px solid {% if codigo == 404 %}#f59e0b{% elif codigo == 500 %}#dc3545{% else %}#075985{% endif %};">
+                        {% if codigo == 404 %}
+                            <i class="bi bi-question-diamond-fill fs-1" style="color: #f59e0b;"></i>
+                        {% elif codigo == 500 %}
+                            <i class="bi bi-exclamation-octagon-fill fs-1 text-danger"></i>
+                        {% else %}
+                            <i class="bi bi-exclamation-triangle-fill fs-1" style="color: #f59e0b;"></i>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <h1 class="display-1 fw-black text-gradient mb-2" style="color: #075985; font-weight: 800; font-size: calc(3.5rem + 2.5vw); line-height: 1; letter-spacing: -2px;">
+                    {{ codigo }}
+                </h1>
+
+                <h2 class="h4 fw-bold mb-3" style="color: var(--sis-ink, #17324d);">
+                    {{ mensaje }}
+                </h2>
+
+                {% if detalle %}
+                <p class="text-muted small mb-4 px-md-3" style="line-height: 1.6;">
+                    {{ detalle }}
+                </p>
+                {% endif %}
+
+                <div class="d-grid gap-2 col-10 col-sm-8 mx-auto mt-4">
+                    <a href="/" class="btn btn-primary btn-lg shadow-sm fw-semibold d-inline-flex align-items-center justify-content-center py-2" style="background-color: #075985; border-color: #075985;">
+                        <i class="bi bi-house-door-fill me-2"></i> Volver al Inicio
+                    </a>
+                </div>
+            </div>
+
+            <div class="card-footer bg-light bg-opacity-50 border-0 py-3 text-muted small">
+                <i class="bi bi-shield-check text-success me-1"></i> SISGEMOSI &bull; UT APURÍMAC - PAE
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

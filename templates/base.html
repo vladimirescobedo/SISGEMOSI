@@ -3,138 +3,182 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>SISGEMOSI - UT - PAE</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo-pae.svg', v='2') }}">
     <link rel="shortcut icon" type="image/svg+xml" href="{{ url_for('static', filename='logo-pae.svg', v='2') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sisgemosi.css', v='2') }}">
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+    <!-- Script de inicialización de tema para evitar parpadeos -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('sisgemosi_theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', savedTheme);
+        })();
+    </script>
     <style>
-        :root {
-            --sis-primary: #075985;
-            --sis-ink: #17324d;
-            --sis-surface: rgba(255, 255, 255, 0.94);
-        }
-        body {
-            color: var(--sis-ink);
-            background-color: #eef5f7 !important;
-            background-image:
-                linear-gradient(rgba(7, 89, 133, 0.035) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(7, 89, 133, 0.035) 1px, transparent 1px),
-                radial-gradient(circle at 8% 0%, rgba(14, 165, 166, 0.14), transparent 28rem),
-                radial-gradient(circle at 92% 15%, rgba(245, 158, 11, 0.12), transparent 24rem);
-            background-size: 28px 28px, 28px 28px, auto, auto;
-        }
-        .navbar {
-            background: linear-gradient(110deg, #102a43, #075985) !important;
-            border-bottom: 3px solid #f59e0b;
-        }
-        .navbar-brand > div {
-            box-shadow: 0 5px 14px rgba(0, 0, 0, 0.22);
-        }
-        .badge-almacen { background-color: #198754; font-size: 0.9rem; }
-        .badge-prestamo { background-color: #dc3545; font-size: 0.9rem; }
-        .nav-link-custom {
-            font-weight: 600;
-            border-radius: 8px;
-            transition: all 0.2s ease;
-        }
-        .nav-link-custom:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 12px rgba(0, 0, 0, 0.18);
-        }
-        .card {
-            background-color: var(--sis-surface);
-            backdrop-filter: blur(5px);
-        }
-        .icono-modulo i,
-        .card-submodulo i.bi,
-        .input-group-text i.bi {
-            transition: transform 0.25s ease;
-        }
-        .icono-modulo:hover i,
-        .card-submodulo:hover i.bi {
-            transform: scale(1.12) rotate(-4deg);
-        }
-        @media print {
-            .no-print { display: none !important; }
-            .card { border: none !important; box-shadow: none !important; }
-        }
+        {% block extra_css %}{% endblock %}
     </style>
 </head>
-<body class="bg-light d-flex flex-column min-vh-100">
-    <!-- Barra Superior -->
-    <nav class="navbar navbar-dark bg-dark mb-4 shadow py-2 no-print">
-        <div class="container-fluid px-4 d-flex flex-wrap justify-content-between align-items-center">
-            <a class="navbar-brand fw-bold d-flex align-items-center mb-2 mb-lg-0" href="/">
+<body class="d-flex flex-column min-vh-100">
+    <!-- Barra Superior Responsive -->
+    <nav class="navbar navbar-dark navbar-expand-lg bg-dark mb-4 shadow py-2 no-print">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold d-flex align-items-center" href="/">
                 <div class="bg-white rounded p-1 me-2 d-flex align-items-center justify-content-center" style="width: 52px; height: 38px;">
                     <img src="{{ url_for('static', filename='logo-pae.svg', v='2') }}" alt="Logo del PAE" style="width: 100%; height: 100%; object-fit: contain;">
                 </div>
                 <span>SISGEMOSI - UT - PAE</span>
             </a>
-            
-            <div class="d-flex flex-wrap align-items-center gap-2">
-                <a class="btn btn-outline-light btn-sm nav-link-custom px-3" href="/">
-                    <i class="bi bi-house-door-fill me-1"></i> Menú Principal
-                </a>
-                <a class="btn btn-primary btn-sm nav-link-custom px-3" href="/prestamos">
-                    <i class="bi bi-laptop me-1"></i> Préstamos
-                </a>
-                <a class="btn btn-info btn-sm nav-link-custom text-dark px-3 fw-bold" href="/trabajadores">
-                    <i class="bi bi-people-fill me-1"></i> Personal
-                </a>
-                <a class="btn btn-warning btn-sm nav-link-custom text-dark px-3 fw-bold" href="/actividades">
-                    <i class="bi bi-calendar-check-fill me-1"></i> Actividades TI
-                </a>
-                <a class="btn btn-danger btn-sm nav-link-custom px-3 fw-bold" href="/sgd">
-                    <i class="bi bi-file-earmark-bar-graph me-1"></i> Monitor SGD
-                </a>
-                <a class="btn btn-secondary btn-sm nav-link-custom px-3" href="/reportes">
-                    <i class="bi bi-bar-chart-fill me-1"></i> Reportes
-                </a>
 
-                <!-- Perfil del Usuario Logueado -->
-                {% if session.get('usuario') %}
-                <div class="dropdown ms-2">
-                    <button class="btn btn-outline-warning btn-sm dropdown-toggle fw-bold" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-person-circle me-1"></i> {{ session.get('nombre') }}
-                        {% if session.get('rol') == 'ADMIN' %}
-                            <span class="badge bg-danger ms-1">ADMIN</span>
-                        {% else %}
-                            <span class="badge bg-primary ms-1">OPERADOR</span>
-                        {% endif %}
+            <!-- Botón hamburguesa para móvil -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSisgemosi" aria-controls="navbarSisgemosi" aria-expanded="false" aria-label="Menú de navegación">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarSisgemosi">
+                <div class="d-flex flex-wrap align-items-center gap-2 ms-auto navbar-nav-modules mt-2 mt-lg-0">
+                    <a class="btn btn-outline-light btn-sm nav-link-custom px-3" href="/" data-bs-toggle="tooltip" title="Página principal">
+                        <i class="bi bi-house-door-fill me-1"></i> Menú Principal
+                    </a>
+                    {% if usuario_tiene_permiso('prestamos', 'ver') %}<a class="btn btn-primary btn-sm nav-link-custom px-3" href="/prestamos" data-bs-toggle="tooltip" title="Gestión de préstamos de bienes">
+                        <i class="bi bi-laptop me-1"></i> Préstamos
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('personal', 'ver') %}<a class="btn btn-info btn-sm nav-link-custom text-dark px-3 fw-bold" href="/trabajadores" data-bs-toggle="tooltip" title="Padrón de personal">
+                        <i class="bi bi-people-fill me-1"></i> Personal
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('actividades', 'ver') %}<a class="btn btn-warning btn-sm nav-link-custom text-dark px-3 fw-bold" href="/actividades" data-bs-toggle="tooltip" title="Bitácora de soporte TI">
+                        <i class="bi bi-calendar-check-fill me-1"></i> Actividades TI
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('documentaria', 'ver') %}<a class="btn btn-success btn-sm nav-link-custom px-3 fw-bold" href="/gestion-documentaria" data-bs-toggle="tooltip" title="Registro de documentos oficiales">
+                        <i class="bi bi-folder-check me-1"></i> Gestión Documentaria
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('sgd', 'ver') %}<a class="btn btn-danger btn-sm nav-link-custom px-3 fw-bold" href="/sgd" data-bs-toggle="tooltip" title="Monitor del Sistema de Gestión Documental">
+                        <i class="bi bi-file-earmark-bar-graph me-1"></i> Monitor SGD
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('reportes', 'ver') %}<a class="btn btn-secondary btn-sm nav-link-custom px-3" href="/reportes" data-bs-toggle="tooltip" title="Reportes y trazabilidad">
+                        <i class="bi bi-bar-chart-fill me-1"></i> Reportes
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('biblioteca', 'ver') %}<a class="btn btn-warning text-dark btn-sm nav-link-custom px-3 fw-bold" href="/biblioteca" data-bs-toggle="tooltip" title="Biblioteca virtual PAE">
+                        <i class="bi bi-collection-play-fill me-1"></i> Biblioteca PAE
+                    </a>{% endif %}
+
+                    <!-- Botón de Modo Diurno / Nocturno -->
+                    <button id="btnThemeToggle" class="btn btn-outline-light btn-sm nav-link-custom px-2" type="button" onclick="toggleTheme()" data-bs-toggle="tooltip" title="Cambiar a Modo Nocturno / Diurno">
+                        <i id="themeIcon" class="bi bi-moon-stars-fill"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow">
-                        <li><h6 class="dropdown-header text-dark fw-bold">{{ session.get('nombre') }} (@{{ session.get('usuario') }})</h6></li>
-                        {% if session.get('rol') == 'ADMIN' %}
-                        <li>
-                            <a class="dropdown-item fw-bold text-primary" href="/usuarios">
-                                <i class="bi bi-people-gear me-2"></i> Gestión de Usuarios
-                            </a>
-                        </li>
-                        {% endif %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li>
-                            <a class="dropdown-item text-danger fw-bold" href="/logout">
-                                <i class="bi bi-box-arrow-right me-2"></i> Cerrar Sesión
-                            </a>
-                        </li>
-                    </ul>
+
+                    <!-- Perfil del Usuario Logueado -->
+                    {% if session.get('usuario') %}
+                    <div class="dropdown ms-1">
+                        <button class="btn btn-outline-warning btn-sm dropdown-toggle fw-bold" type="button" data-bs-toggle="dropdown" aria-label="Menú de usuario">
+                            <i class="bi bi-person-circle me-1"></i> {{ session.get('nombre') }}
+                            {% if session.get('rol') == 'ADMIN' %}
+                                <span class="badge bg-danger ms-1">ADMIN</span>
+                            {% else %}
+                                <span class="badge bg-primary ms-1">OPERADOR</span>
+                            {% endif %}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                            <li><h6 class="dropdown-header text-dark fw-bold">{{ session.get('nombre') }} (@{{ session.get('usuario') }})</h6></li>
+                            {% if session.get('rol') == 'ADMIN' %}
+                            <li>
+                                <a class="dropdown-item fw-bold text-primary" href="/usuarios">
+                                    <i class="bi bi-people-gear me-2"></i> Gestión de Usuarios
+                                </a>
+                            </li>
+                            {% endif %}
+                            <li>
+                                <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#modalCambiarClave">
+                                    <i class="bi bi-key me-2"></i> Cambiar Contraseña
+                                </button>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item text-danger fw-bold" href="/logout">
+                                    <i class="bi bi-box-arrow-right me-2"></i> Cerrar Sesión
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
         </div>
     </nav>
+
+    <!-- Mensajes Flash -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="container-fluid px-4">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
 
     <div class="container-fluid px-4 flex-grow-1">
         {% block content %}{% endblock %}
     </div>
 
-    <footer class="bg-white border-top py-3 text-center text-muted small mt-5 no-print">
+    <footer class="border-top py-3 text-center small mt-5 no-print">
         <strong>SISTEMA DE GESTIÓN DE MÓDULOS DE SOPORTE INFORMÁTICO UT APURÍMAC - PAE (SISGEMOSI)</strong>
     </footer>
 
+    <!-- Modal Cambiar Contraseña -->
+    {% if session.get('usuario') %}
+    <div class="modal fade" id="modalCambiarClave" tabindex="-1" aria-labelledby="modalCambiarClaveLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="POST" action="/cambiar-clave">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title" id="modalCambiarClaveLabel"><i class="bi bi-key me-2"></i>Cambiar Contraseña</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Contraseña Actual</label>
+                            <input type="password" name="clave_actual" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Nueva Contraseña</label>
+                            <input type="password" name="clave_nueva" class="form-control" required minlength="12">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Confirmar Nueva Contraseña</label>
+                            <input type="password" name="clave_confirmar" class="form-control" required minlength="12">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/table-utils.js', v='2') }}"></script>
+    <script>
+        document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(function(formulario) {
+            if (!formulario.querySelector('input[name="csrf_token"]')) {
+                const campo = document.createElement('input');
+                campo.type = 'hidden';
+                campo.name = 'csrf_token';
+                campo.value = document.querySelector('meta[name="csrf-token"]').content;
+                formulario.appendChild(campo);
+            }
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html>

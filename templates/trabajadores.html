@@ -24,6 +24,13 @@
     }
 </style>
 
+<!-- Breadcrumb -->
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Padrón de Personal</span>
+</nav>
+
 <!-- Cabecera y Botones de Acción -->
 <div class="card shadow-sm border-0 mb-3 bg-white no-print">
     <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
@@ -35,12 +42,23 @@
             <button class="btn btn-primary fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoTrabajador">
                 <i class="bi bi-person-plus-fill me-1"></i> Nuevo Trabajador
             </button>
-            <a href="/trabajadores/exportar-excel" class="btn btn-success fw-bold shadow-sm">
-                <i class="bi bi-file-earmark-excel-fill me-1"></i> Exportar Lista a Excel
-            </a>
+            <form action="/trabajadores/importar-excel" method="POST" enctype="multipart/form-data" class="d-inline-flex gap-2 align-items-center">
+                <input type="file" name="archivo_excel_trabajadores" class="form-control form-control-sm" accept=".xlsx,.xls" required style="max-width: 220px;" title="Importar personal desde Excel">
+                <button type="submit" class="btn btn-success fw-bold shadow-sm">
+                    <i class="bi bi-file-earmark-excel-fill me-1"></i> Importar Excel
+                </button>
+            </form>
+            <button class="btn btn-outline-success fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalExportarTrabajadores">
+                <i class="bi bi-download me-1"></i> Exportar Lista
+            </button>
         </div>
     </div>
 </div>
+
+<ul class="nav nav-tabs mb-3 no-print" role="tablist">
+    <li class="nav-item"><button class="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#personalActivo" type="button"><i class="bi bi-person-check me-1"></i>Trabajadores activos ({{ trabajadores|length }})</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#personalAntiguo" type="button"><i class="bi bi-archive me-1"></i>Trabajadores antiguos ({{ trabajadores_antiguos|length }})</button></li>
+</ul>
 
 <!-- Panel de Filtros y Ordenamiento Avanzado -->
 <div class="card shadow-sm border-0 p-3 mb-3 bg-white no-print">
@@ -93,6 +111,8 @@
 </div>
 
 <!-- Tabla de Trabajadores -->
+<div class="tab-content">
+<div class="tab-pane fade show active" id="personalActivo">
 <div class="card shadow-sm border-0">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-3">
         <h5 class="mb-0"><i class="bi bi-people me-2"></i>Padrón de Personal</h5>
@@ -103,16 +123,16 @@
             <table class="table table-hover table-striped align-middle mb-0" id="tablaTrabajadores">
                 <thead class="table-dark">
                     <tr>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(0)" style="width: 10%;">DNI <span id="sortTr0">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(1)" style="width: 22%;">Apellidos y Nombres <span id="sortTr1">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(2)" style="width: 15%;">Cargo <span id="sortTr2">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(3)" style="width: 10%;">Contrato <span id="sortTr3">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(4)" style="width: 9%;">Teléfono <span id="sortTr4">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(5)" style="width: 11%;">Celular Institucional <span id="sortTr5">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(6)" style="width: 12%;">Correo Institucional <span id="sortTr6">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(7)" style="width: 11%;">Correo Personal <span id="sortTr7">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(8)" style="width: 10%;">F. Nacimiento <span id="sortTr8">↕</span></th>
-                        <th style="width: 10%;" class="text-center">Acciones</th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(0)" style="width: 10%;"><i class="bi bi-person-vcard me-1"></i>DNI <span id="sortTr0">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(1)" style="width: 22%;"><i class="bi bi-person-lines-fill me-1"></i>Apellidos y Nombres <span id="sortTr1">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(2)" style="width: 15%;"><i class="bi bi-person-workspace me-1"></i>Cargo <span id="sortTr2">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(3)" style="width: 10%;"><i class="bi bi-file-earmark-text me-1"></i>Contrato <span id="sortTr3">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(4)" style="width: 9%;"><i class="bi bi-telephone me-1"></i>Teléfono <span id="sortTr4">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(5)" style="width: 11%;"><i class="bi bi-phone me-1"></i>Celular Institucional <span id="sortTr5">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(6)" style="width: 12%;"><i class="bi bi-envelope-at me-1"></i>Correo Institucional <span id="sortTr6">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(7)" style="width: 11%;"><i class="bi bi-envelope me-1"></i>Correo Personal <span id="sortTr7">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaTrabajadores(8)" style="width: 10%;"><i class="bi bi-calendar3 me-1"></i>F. Nacimiento <span id="sortTr8">↕</span></th>
+                        <th style="width: 10%;" class="text-center"><i class="bi bi-tools me-1"></i>Acciones</th>
                     </tr>
                 </thead>
                 <tbody id="tbodyTrabajadores">
@@ -135,8 +155,20 @@
                                     onclick="abrirModalEditar('{{ t.id }}', '{{ t.dni }}', '{{ t.nombres }}', '{{ t.apellido_paterno }}', '{{ t.apellido_materno }}', '{{ t.cargo or '' }}', '{{ t.tipo_contrato or '' }}', '{{ t.telefono or '' }}', '{{ t.celular_institucional or '' }}', '{{ t.correo_institucional or '' }}', '{{ t.correo_personal or '' }}', '{{ t.fecha_nacimiento or '' }}')">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
+                                <button class="btn btn-sm {% if contratos_por_trabajador.get(t.id, {}).get('OS') %}btn-success{% else %}btn-outline-warning{% endif %}" title="{% if contratos_por_trabajador.get(t.id, {}).get('OS') %}OS cargada. Haga clic para reemplazarla{% else %}Subir OS{% endif %}" onclick="abrirModalContrato('{{ t.id }}', 'OS')">
+                                    <i class="bi {% if contratos_por_trabajador.get(t.id, {}).get('OS') %}bi-check-circle-fill{% else %}bi-file-earmark-arrow-up{% endif %}"></i> OS
+                                </button>
+                                <button class="btn btn-sm {% if contratos_por_trabajador.get(t.id, {}).get('CAS') %}btn-success{% else %}btn-outline-info{% endif %}" title="{% if contratos_por_trabajador.get(t.id, {}).get('CAS') %}Contrato CAS cargado. Haga clic para reemplazarlo{% else %}Subir CONTRATO CAS{% endif %}" onclick="abrirModalContrato('{{ t.id }}', 'CAS')">
+                                    <i class="bi {% if contratos_por_trabajador.get(t.id, {}).get('CAS') %}bi-check-circle-fill{% else %}bi-file-earmark-arrow-up{% endif %}"></i> CAS
+                                </button>
+                                {% if contratos_por_trabajador.get(t.id, {}).get('OS') %}
+                                <a class="btn btn-sm btn-outline-success" title="Descargar OS" href="/trabajadores/contrato/{{ contratos_por_trabajador[t.id]['OS']['id'] }}"><i class="bi bi-download"></i> OS</a>
+                                {% endif %}
+                                {% if contratos_por_trabajador.get(t.id, {}).get('CAS') %}
+                                <a class="btn btn-sm btn-outline-success" title="Descargar contrato CAS" href="/trabajadores/contrato/{{ contratos_por_trabajador[t.id]['CAS']['id'] }}"><i class="bi bi-download"></i> CAS</a>
+                                {% endif %}
                                 {% if session.get('rol') == 'ADMIN' %}
-                                <button class="btn btn-sm btn-outline-danger" title="Eliminar Trabajador"
+                                <button class="btn btn-sm btn-outline-danger" title="Desactivar Trabajador"
                                     onclick="abrirModalEliminar('{{ t.id }}', '{{ t.nombres }} {{ t.apellido_paterno }}', '{{ t.dni }}')">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -157,6 +189,108 @@
         </div>
     </div>
 </div>
+</div>
+
+<div class="tab-pane fade" id="personalAntiguo">
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0"><i class="bi bi-archive me-2"></i>Trabajadores Antiguos</h5>
+        <span class="badge bg-light text-dark fs-6">{{ trabajadores_antiguos|length }} Registrados</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover table-striped align-middle mb-0">
+            <thead class="table-secondary"><tr><th>DNI</th><th>Apellidos y Nombres</th><th>Cargo</th><th>Contrato</th><th class="text-center">Acciones</th></tr></thead>
+            <tbody>
+            {% for t in trabajadores_antiguos %}
+            <tr>
+                <td><span class="badge bg-dark">{{ t.dni }}</span></td>
+                <td class="fw-bold">{{ t.apellido_paterno }} {{ t.apellido_materno }}, {{ t.nombres }}</td>
+                <td>{{ t.cargo or '-' }}</td><td>{{ t.tipo_contrato or '-' }}</td>
+                <td class="text-center">
+                    <form method="POST" action="/trabajadores/cambiar-estado/{{ t.id }}" class="d-inline">
+                        <button class="btn btn-sm btn-outline-success" title="Activar trabajador"><i class="bi bi-person-check"></i> Activar</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}<tr><td colspan="5" class="text-center py-4 text-muted">No hay trabajadores antiguos.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</div>
+</div>
+
+<div class="modal fade" id="modalContrato" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="formContrato" method="POST" enctype="multipart/form-data" class="modal-content">
+            <div class="modal-header bg-dark text-white"><h5 class="modal-title"><i class="bi bi-file-earmark-arrow-up me-2"></i>Subir documento <span id="tipoContratoTitulo"></span></h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body"><input type="hidden" name="tipo_documento" id="tipo_documento"><label class="form-label fw-bold"><i class="bi bi-file-earmark-arrow-up me-1 text-primary"></i>Archivo</label><input type="file" name="archivo_contrato" class="form-control" required accept=".pdf,.doc,.docx,.xlsx,.xls"></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary fw-bold"><i class="bi bi-upload me-1"></i>Guardar archivo</button></div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: EXPORTACIÓN PERSONALIZADA -->
+<div class="modal fade" id="modalExportarTrabajadores" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-bar-graph me-2"></i>Configurar exportación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formExportarTrabajadores" onsubmit="return validarExportacionTrabajadores(event)">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">Personal a incluir</label>
+                            <select name="estado" class="form-select">
+                                <option value="activos">Personal activo</option>
+                                <option value="inactivos">Personal antiguo</option>
+                                <option value="todos">Todo el personal</option>
+                            </select>
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label fw-bold">Orientación del PDF</label>
+                            <div class="d-flex flex-wrap gap-3 pt-2">
+                                <label class="form-check">
+                                    <input class="form-check-input" type="radio" name="orientacion" value="auto" checked>
+                                    <span class="form-check-label">Automática</span>
+                                </label>
+                                <label class="form-check">
+                                    <input class="form-check-input" type="radio" name="orientacion" value="vertical">
+                                    <span class="form-check-label"><i class="bi bi-file-earmark me-1"></i>Vertical</span>
+                                </label>
+                                <label class="form-check">
+                                    <input class="form-check-input" type="radio" name="orientacion" value="horizontal">
+                                    <span class="form-check-label"><i class="bi bi-file-earmark-landscape me-1"></i>Horizontal</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Información que desea exportar</label>
+                            <div class="row g-2">
+                                {% for valor, etiqueta in [('dni', 'DNI'), ('nombre', 'Apellidos y nombres'), ('cargo', 'Cargo'), ('tipo_contrato', 'Tipo de contrato'), ('telefono', 'Teléfono'), ('celular_institucional', 'Celular institucional'), ('correo_institucional', 'Correo institucional'), ('correo_personal', 'Correo personal'), ('fecha_nacimiento', 'Fecha de nacimiento')] %}
+                                <div class="col-md-4">
+                                    <label class="form-check border rounded p-2 h-100">
+                                        <input class="form-check-input ms-0 me-2" type="checkbox" name="campos" value="{{ valor }}" {% if valor in ['dni', 'nombre', 'cargo'] %}checked{% endif %}>
+                                        <span class="form-check-label">{{ etiqueta }}</span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <div class="form-text">Los correos largos se mostrarán completos, ajustados en varias líneas dentro de su columna.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" formaction="/trabajadores/exportar-excel" class="btn btn-success fw-bold"><i class="bi bi-file-earmark-excel me-1"></i> Excel</button>
+                    <button type="submit" formaction="/trabajadores/exportar-pdf" class="btn btn-danger fw-bold"><i class="bi bi-file-earmark-pdf me-1"></i> PDF</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <!-- Modal: NUEVO TRABAJADOR -->
 <div class="modal fade" id="modalNuevoTrabajador" tabindex="-1">
@@ -168,47 +302,49 @@
             </div>
             <div class="modal-body row g-3">
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">DNI *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-vcard me-1 text-primary"></i>DNI *</label>
                     <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" maxlength="15">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Nombres *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Nombres *</label>
                     <input type="text" name="nombres" class="form-control" required placeholder="Nombres">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Apellido Paterno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Apellido Paterno *</label>
                     <input type="text" name="apellido_paterno" class="form-control" required placeholder="Paterno">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Apellido Materno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Apellido Materno *</label>
                     <input type="text" name="apellido_materno" class="form-control" required placeholder="Materno">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Cargo</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-workspace me-1 text-primary"></i>Cargo</label>
                     <input type="text" name="cargo" class="form-control" placeholder="Ej: Especialista, Asistente...">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Tipo de Contrato</label>
-                    <input type="text" name="tipo_contrato" class="form-control" placeholder="Ej: CAS, 276, 728...">
+                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Tipo de Contrato</label>
+                    <select name="tipo_contrato" class="form-select">
+                        <option value="">-- Seleccione --</option><option value="OS">OS (Orden de Servicio)</option><option value="CAS">CAS (Contrato Administrativo de Servicio)</option><option value="LEY N° 725">LEY N° 725</option>
+                    </select>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Número de Teléfono</label>
+                    <label class="form-label"><i class="bi bi-telephone me-1 text-primary"></i>Número de Teléfono</label>
                     <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Celular Institucional</label>
+                    <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
                     <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Correo Institucional</label>
+                    <label class="form-label"><i class="bi bi-envelope-at me-1 text-primary"></i>Correo Institucional</label>
                     <input type="email" name="correo_institucional" class="form-control" placeholder="usuario@institucion.gob.pe">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Correo Personal</label>
+                    <label class="form-label"><i class="bi bi-envelope me-1 text-primary"></i>Correo Personal</label>
                     <input type="email" name="correo_personal" class="form-control" placeholder="usuario@gmail.com">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Fecha de Nacimiento</label>
+                    <label class="form-label"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha de Nacimiento</label>
                     <input type="text" name="fecha_nacimiento" class="form-control" placeholder="DD/MM/AAAA">
                 </div>
             </div>
@@ -232,47 +368,49 @@
                 <input type="hidden" name="trabajador_id" id="edit_trabajador_id">
                 
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">DNI *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-vcard me-1 text-primary"></i>DNI *</label>
                     <input type="text" name="dni" id="edit_dni" class="form-control" required maxlength="15">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Nombres *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Nombres *</label>
                     <input type="text" name="nombres" id="edit_nombres" class="form-control" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Apellido Paterno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Apellido Paterno *</label>
                     <input type="text" name="apellido_paterno" id="edit_paterno" class="form-control" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Apellido Materno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Apellido Materno *</label>
                     <input type="text" name="apellido_materno" id="edit_materno" class="form-control" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Cargo</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-workspace me-1 text-primary"></i>Cargo</label>
                     <input type="text" name="cargo" id="edit_cargo" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Tipo de Contrato</label>
-                    <input type="text" name="tipo_contrato" id="edit_contrato" class="form-control">
+                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Tipo de Contrato</label>
+                    <select name="tipo_contrato" id="edit_contrato" class="form-select">
+                        <option value="">-- Seleccione --</option><option value="OS">OS (Orden de Servicio)</option><option value="CAS">CAS (Contrato Administrativo de Servicio)</option><option value="LEY N° 725">LEY N° 725</option>
+                    </select>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Número de Teléfono</label>
+                    <label class="form-label"><i class="bi bi-telephone me-1 text-primary"></i>Número de Teléfono</label>
                     <input type="text" name="telefono" id="edit_telefono" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Celular Institucional</label>
+                    <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
                     <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Correo Institucional</label>
+                    <label class="form-label"><i class="bi bi-envelope-at me-1 text-primary"></i>Correo Institucional</label>
                     <input type="email" name="correo_institucional" id="edit_c_inst" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Correo Personal</label>
+                    <label class="form-label"><i class="bi bi-envelope me-1 text-primary"></i>Correo Personal</label>
                     <input type="email" name="correo_personal" id="edit_c_pers" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Fecha de Nacimiento</label>
+                    <label class="form-label"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha de Nacimiento</label>
                     <input type="text" name="fecha_nacimiento" id="edit_f_nac" class="form-control" placeholder="DD/MM/AAAA">
                 </div>
             </div>
@@ -293,8 +431,8 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p>¿Está seguro de eliminar al trabajador <strong id="eliminar_nombre"></strong>?</p>
-                <small class="text-danger">Esta acción no se puede deshacer.</small>
+                <p>¿Está seguro de desactivar al trabajador <strong id="eliminar_nombre"></strong>?</p>
+                <small class="text-muted">Se conservarán sus datos en la pestaña Trabajadores Antiguos y podrá activarlo después.</small>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -418,6 +556,23 @@ function abrirModalEliminar(id, nombre, dni) {
     document.getElementById('formEliminar').action = '/trabajadores/eliminar/' + id;
     document.getElementById('eliminar_nombre').innerText = nombre + ' (DNI: ' + dni + ')';
     new bootstrap.Modal(document.getElementById('modalEliminarTrabajador')).show();
+}
+
+function abrirModalContrato(id, tipo) {
+    document.getElementById('formContrato').action = '/trabajadores/' + id + '/contrato';
+    document.getElementById('tipo_documento').value = tipo;
+    document.getElementById('tipoContratoTitulo').innerText = tipo;
+    new bootstrap.Modal(document.getElementById('modalContrato')).show();
+}
+
+function validarExportacionTrabajadores(event) {
+    const seleccionados = document.querySelectorAll('#formExportarTrabajadores input[name="campos"]:checked');
+    if (seleccionados.length === 0) {
+        event.preventDefault();
+        alert('Seleccione al menos un campo para exportar.');
+        return false;
+    }
+    return true;
 }
 </script>
 {% endblock %}

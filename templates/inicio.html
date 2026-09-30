@@ -18,10 +18,38 @@
         border-radius: 20px;
         cursor: pointer;
         text-decoration: none !important;
+        min-height: 315px;
     }
     .card-modulo:hover {
         transform: translateY(-8px);
         box-shadow: 0 16px 32px rgba(0,0,0,0.15) !important;
+        background-color: var(--modulo-color) !important;
+        color: #fff !important;
+    }
+    .card-modulo:hover h5,
+    .card-modulo:hover p,
+    .card-modulo:hover .text-dark,
+    .card-modulo:hover .text-primary,
+    .card-modulo:hover .text-danger,
+    .card-modulo:hover .text-success,
+    .card-modulo:hover .text-warning,
+    .card-modulo:hover .text-muted {
+        color: #fff !important;
+    }
+    .card-modulo:hover .icono-modulo {
+        background-color: rgba(255, 255, 255, 0.22) !important;
+        color: #fff !important;
+    }
+    .card-modulo:hover .icono-modulo i {
+        color: #fff !important;
+    }
+    .card-modulo:hover .border-top {
+        border-color: rgba(255, 255, 255, 0.55) !important;
+    }
+    .card-modulo:hover .badge {
+        background-color: #fff !important;
+        border-color: #fff !important;
+        color: var(--modulo-color) !important;
     }
     .icono-modulo {
         width: 85px;
@@ -33,6 +61,26 @@
         font-size: 2.6rem;
         margin: 0 auto 15px auto;
     }
+    .btn-ingresar-modulo {
+        display: block;
+        width: 100%;
+        border: 2px solid var(--modulo-color);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--modulo-color);
+        transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+    }
+    .card-modulo:hover .btn-ingresar-modulo {
+        background: #fff;
+        color: var(--modulo-color);
+        border-color: #fff;
+        transform: translateY(-1px);
+    }
+    .modulo-primary { --modulo-color: #0d6efd; }
+    .modulo-info { --modulo-color: #087f9b; }
+    .modulo-warning { --modulo-color: #d99b00; }
+    .modulo-danger { --modulo-color: #dc3545; }
+    .modulo-success { --modulo-color: #198754; }
 </style>
 
 <!-- Banner Institucional -->
@@ -50,8 +98,8 @@
 <div class="row g-4 justify-content-center">
     
     <!-- 1. SISTEMA DE PRÉSTAMO DE EQUIPOS -->
-    <div class="col-lg-3 col-md-6">
-        <a href="/prestamos" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+    {% if usuario_tiene_permiso('prestamos', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/prestamos" class="card card-modulo modulo-primary h-100 border-0 shadow text-center p-3 bg-white text-dark">
             <div class="card-body d-flex flex-column justify-content-between">
                 <div>
                     <div class="icono-modulo bg-primary bg-opacity-10 text-primary">
@@ -59,23 +107,23 @@
                     </div>
                     <h5 class="fw-bold text-primary mb-2">PRÉSTAMO DE EQUIPOS</h5>
                     <p class="text-muted small">
-                        Control patrimonial de <strong>Móviles</strong>, <strong>Tokens</strong> e <strong>Informáticos</strong> con actas Word automáticas.
+                        Control patrimonial de <strong>Móviles</strong>, <strong>Tokens</strong>, <strong>Informáticos</strong> y <strong>Mobiliario</strong> con actas Word automáticas.
                     </p>
                 </div>
                 <div class="mt-3 pt-2 border-top d-flex justify-content-around">
                     <span class="badge bg-light text-dark border">{{ total_equipos }} Bienes</span>
                     <span class="badge bg-danger">{{ equipos_prestamo }} Prestados</span>
                 </div>
-                <div class="btn btn-primary btn-sm mt-3 fw-bold py-2 shadow-sm">
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
                     Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
                 </div>
             </div>
         </a>
-    </div>
+    </div>{% endif %}
 
     <!-- 2. SISTEMA DE REGISTRO DEL PERSONAL -->
-    <div class="col-lg-3 col-md-6">
-        <a href="/trabajadores" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+    {% if usuario_tiene_permiso('personal', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/trabajadores" class="card card-modulo modulo-info h-100 border-0 shadow text-center p-3 bg-white text-dark">
             <div class="card-body d-flex flex-column justify-content-between">
                 <div>
                     <div class="icono-modulo bg-info bg-opacity-10 text-dark">
@@ -91,16 +139,16 @@
                         <i class="bi bi-person-check-fill me-1"></i> {{ total_personal }} Trabajadores
                     </span>
                 </div>
-                <div class="btn btn-info text-dark btn-sm mt-3 fw-bold py-2 shadow-sm">
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
                     Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
                 </div>
             </div>
         </a>
-    </div>
+    </div>{% endif %}
 
     <!-- 3. SISTEMA DE REGISTRO DE ACTIVIDADES (SOPORTE TI) -->
-    <div class="col-lg-3 col-md-6">
-        <a href="/actividades" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+    {% if usuario_tiene_permiso('actividades', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/actividades" class="card card-modulo modulo-warning h-100 border-0 shadow text-center p-3 bg-white text-dark">
             <div class="card-body d-flex flex-column justify-content-between">
                 <div>
                     <div class="icono-modulo bg-warning bg-opacity-10 text-warning">
@@ -115,16 +163,16 @@
                     <span class="badge bg-warning text-dark">{{ tareas_pendientes }} Pendientes</span>
                     <span class="badge bg-primary">{{ tareas_hoy }} Hoy</span>
                 </div>
-                <div class="btn btn-warning text-dark btn-sm mt-3 fw-bold py-2 shadow-sm">
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
                     Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
                 </div>
             </div>
         </a>
-    </div>
+    </div>{% endif %}
 
     <!-- 4. MONITOR Y REPORTE SGD (NUEVO) -->
-    <div class="col-lg-3 col-md-6">
-        <a href="/sgd" class="card card-modulo h-100 border-0 shadow text-center p-3 bg-white text-dark">
+    {% if usuario_tiene_permiso('sgd', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/sgd" class="card card-modulo modulo-danger h-100 border-0 shadow text-center p-3 bg-white text-dark">
             <div class="card-body d-flex flex-column justify-content-between">
                 <div>
                     <div class="icono-modulo bg-danger bg-opacity-10 text-danger">
@@ -140,12 +188,52 @@
                         <i class="bi bi-lightning-charge-fill me-1"></i> Análisis de Carga SGD
                     </span>
                 </div>
-                <div class="btn btn-danger btn-sm mt-3 fw-bold py-2 shadow-sm">
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
                     Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
                 </div>
             </div>
         </a>
-    </div>
+    </div>{% endif %}
+
+    <!-- 5. GESTIÓN DOCUMENTARIA -->
+    {% if usuario_tiene_permiso('documentaria', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/gestion-documentaria" class="card card-modulo modulo-success h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-folder-check"></i>
+                    </div>
+                    <h5 class="fw-bold text-success mb-2">GESTIÓN DOCUMENTARIA</h5>
+                    <p class="text-muted small">
+                        Registro de cartas, informes, memorandos y análisis con numeración única y revisión automatizada con Gemini.
+                    </p>
+                </div>
+                <div class="mt-3 pt-2 border-top">
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success py-2 px-3">
+                        <i class="bi bi-file-earmark-text-fill me-1"></i> {{ total_documentos }} registros
+                    </span>
+                </div>
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>{% endif %}
+
+    <!-- 6. BIBLIOTECA VIRTUAL PAE -->
+    {% if usuario_tiene_permiso('biblioteca', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/biblioteca" class="card card-modulo modulo-warning h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-warning bg-opacity-10 text-warning"><i class="bi bi-collection-play-fill"></i></div>
+                    <h5 class="fw-bold text-warning mb-2">BIBLIOTECA VIRTUAL PAE</h5>
+                    <p class="text-muted small">Ponencias, cursos, sesiones informativas y capacitaciones con reproducción directa de videos.</p>
+                </div>
+                <div class="mt-3 pt-2 border-top"><span class="badge bg-warning text-dark py-2 px-3"><i class="bi bi-play-btn-fill me-1"></i>Contenido audiovisual</span></div>
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">Ingresar <i class="bi bi-arrow-right-circle ms-1"></i></div>
+            </div>
+        </a>
+    </div>{% endif %}
 
 </div>
 {% endblock %}

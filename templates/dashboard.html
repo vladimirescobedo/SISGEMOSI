@@ -55,13 +55,13 @@
             <table class="table table-hover align-middle mb-0" id="tablaEquipos">
                 <thead class="table-secondary">
                     <tr>
-                        <th style="width: 10%;">Cód. Interno</th>
-                        <th style="width: 18%;">Tipo / Detalle</th>
-                        <th style="width: 18%;">Serie / IMEI / Línea</th>
-                        <th style="width: 14%;">Estado</th>
-                        <th style="width: 20%;">Custodio Actual</th>
-                        <th style="width: 10%;">Desde Cuándo</th>
-                        <th style="width: 10%;" class="text-center">Acciones</th>
+                        <th style="width: 10%;"><i class="bi bi-upc-scan me-1"></i>Cód. Interno</th>
+                        <th style="width: 18%;"><i class="bi bi-box-seam me-1"></i>Tipo / Detalle</th>
+                        <th style="width: 18%;"><i class="bi bi-hash me-1"></i>Serie / IMEI / Línea</th>
+                        <th style="width: 14%;"><i class="bi bi-activity me-1"></i>Estado</th>
+                        <th style="width: 20%;"><i class="bi bi-person-badge me-1"></i>Custodio Actual</th>
+                        <th style="width: 10%;"><i class="bi bi-calendar-event me-1"></i>Desde Cuándo</th>
+                        <th style="width: 10%;" class="text-center"><i class="bi bi-tools me-1"></i>Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -147,7 +147,7 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Seleccionar Trabajador (Custodio):</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-badge me-1 text-primary"></i>Seleccionar Trabajador (Custodio):</label>
                     <select name="trabajador_id" class="form-select" required>
                         <option value="">-- Seleccionar Trabajador --</option>
                         {% for tr in trabajadores %}
@@ -156,7 +156,7 @@
                     </select>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Observaciones / Estado de Entrega:</label>
+                    <label class="form-label"><i class="bi bi-clipboard-check me-1 text-primary"></i>Observaciones / Estado de Entrega:</label>
                     <textarea name="observaciones" class="form-control" rows="2" placeholder="Ej: Se entrega con cargador, cable y funda."></textarea>
                 </div>
             </div>
@@ -180,7 +180,7 @@
                 <input type="hidden" name="prestamo_id" id="devolver_prestamo_id">
                 <p>¿Confirmar la recepción del equipo <strong id="devolver_equipo_nombre"></strong> y retornar a <strong>EN ALMACÉN</strong>?</p>
                 <div class="mb-3">
-                    <label class="form-label">Observaciones de Recepción:</label>
+                    <label class="form-label"><i class="bi bi-clipboard-check me-1 text-primary"></i>Observaciones de Recepción:</label>
                     <textarea name="observaciones_devolucion" class="form-control" rows="2" placeholder="Ej: Se recibe operativo y completo."></textarea>
                 </div>
             </div>
@@ -202,11 +202,11 @@
             </div>
             <div class="modal-body row g-3">
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Código Interno / Patrimonial *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-upc-scan me-1 text-primary"></i>Código Interno / Patrimonial *</label>
                     <input type="text" name="codigo_interno" class="form-control" required placeholder="Ej: CEL-01, LAP-05">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Tipo de Equipo *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-box-seam me-1 text-primary"></i>Tipo de Equipo *</label>
                     <select name="tipo_equipo" class="form-select" required>
                         <option value="Celular">Celular</option>
                         <option value="Laptop">Laptop</option>
@@ -216,31 +216,31 @@
                     </select>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Marca</label>
+                    <label class="form-label"><i class="bi bi-tag me-1 text-primary"></i>Marca</label>
                     <input type="text" name="marca" class="form-control" placeholder="Samsung, Lenovo...">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Modelo</label>
+                    <label class="form-label"><i class="bi bi-box me-1 text-primary"></i>Modelo</label>
                     <input type="text" name="modelo" class="form-control">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Número de Serie (S/N)</label>
+                    <label class="form-label"><i class="bi bi-hash me-1 text-primary"></i>Número de Serie (S/N)</label>
                     <input type="text" name="numero_serie" class="form-control">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">Número de Línea (si aplica)</label>
+                    <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Número de Línea (si aplica)</label>
                     <input type="text" name="numero_linea" class="form-control" placeholder="983123456">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">IMEI 1 (si es Celular)</label>
+                    <label class="form-label"><i class="bi bi-phone-vibrate me-1 text-primary"></i>IMEI 1 (si es Celular)</label>
                     <input type="text" name="imei_1" class="form-control">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label">IMEI 2 (si aplica)</label>
+                    <label class="form-label"><i class="bi bi-phone-vibrate me-1 text-primary"></i>IMEI 2 (si aplica)</label>
                     <input type="text" name="imei_2" class="form-control">
                 </div>
                 <div class="col-12">
-                    <label class="form-label">Accesorios Incluidos</label>
+                    <label class="form-label"><i class="bi bi-tools me-1 text-primary"></i>Accesorios Incluidos</label>
                     <input type="text" name="accesorios" class="form-control" placeholder="Cargador, cable USB, funda protectora...">
                 </div>
             </div>
@@ -262,43 +262,43 @@
             </div>
             <div class="modal-body row g-3">
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">DNI *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-vcard me-1 text-primary"></i>DNI *</label>
                     <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" maxlength="15">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Nombres *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Nombres *</label>
                     <input type="text" name="nombres" class="form-control" required placeholder="Nombres">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Apellido Paterno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Apellido Paterno *</label>
                     <input type="text" name="apellido_paterno" class="form-control" required placeholder="Paterno">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Apellido Materno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Apellido Materno *</label>
                     <input type="text" name="apellido_materno" class="form-control" required placeholder="Materno">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Cargo</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-workspace me-1 text-primary"></i>Cargo</label>
                     <input type="text" name="cargo" class="form-control" placeholder="Ej: Especialista, Asistente...">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Tipo de Contrato</label>
+                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Tipo de Contrato</label>
                     <input type="text" name="tipo_contrato" class="form-control" placeholder="Ej: CAS, 276, 728, Locación...">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Número de Teléfono</label>
+                    <label class="form-label"><i class="bi bi-telephone me-1 text-primary"></i>Número de Teléfono</label>
                     <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Correo Institucional</label>
+                    <label class="form-label"><i class="bi bi-envelope-at me-1 text-primary"></i>Correo Institucional</label>
                     <input type="email" name="correo_institucional" class="form-control" placeholder="usuario@institucion.gob.pe">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Correo Personal</label>
+                    <label class="form-label"><i class="bi bi-envelope me-1 text-primary"></i>Correo Personal</label>
                     <input type="email" name="correo_personal" class="form-control" placeholder="usuario@gmail.com">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Fecha de Nacimiento</label>
+                    <label class="form-label"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha de Nacimiento</label>
                     <input type="date" name="fecha_nacimiento" class="form-control">
                 </div>
             </div>

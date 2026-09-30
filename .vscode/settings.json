@@ -1,0 +1,26 @@
+{
+  "search.exclude": {
+    "**/venv": true,
+    "**/env": true,
+    "**/.venv": true,
+    "**/Lib/site-packages": true,
+    "**/__pycache__": true,
+    "**/actas_generadas": true,
+    "**/uploads": true,
+    "**/uploads_documentos": true,
+    "**/uploads_sgd": true,
+    "**/*.db": true,
+    "**/*.sqlite": true,
+    "**/*.sqlite3": true,
+    "**/*.zip": true,
+    "**/*.rar": true,
+    "**/*.7z": true,
+    "**/*.log": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/*.pyo": true,
+    "**/*.pyd": true
+  }
+}

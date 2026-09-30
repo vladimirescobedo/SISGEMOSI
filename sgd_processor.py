@@ -1,9 +1,46 @@
 import os
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.formatting.rule import ColorScaleRule
 from datetime import datetime, date
 from collections import defaultdict
 from io import BytesIO
+
+def aplicar_destinatarios_ocultos(resultado, ocultos):
+    """Devuelve una vista del corte sin destinatarios ocultos, sin mutar el original."""
+    ocultos = set(ocultos or [])
+    visibles = [p for p in resultado.get("destinatarios", []) if p not in ocultos]
+    resultado_visible = dict(resultado)
+    matriz = resultado.get("matriz", {})
+    totales = resultado.get("totales_destinatario", {})
+    resultado_visible["destinatarios"] = visibles
+    resultado_visible["matriz"] = {p: dict(matriz.get(p, {})) for p in visibles}
+    resultado_visible["totales_destinatario"] = {p: totales.get(p, 0) for p in visibles}
+    resultado_visible["totales_fecha"] = {
+        fecha: sum(resultado_visible["matriz"].get(p, {}).get(fecha, 0) for p in visibles)
+        for fecha in resultado.get("fechas", [])
+    }
+    resultado_visible["gran_total"] = sum(resultado_visible["totales_destinatario"].values())
+    resultado_visible["total_trabajadores"] = len(visibles)
+    resultado_visible["total_min"] = min(resultado_visible["totales_destinatario"].values(), default=0)
+    resultado_visible["total_max"] = max(resultado_visible["totales_destinatario"].values(), default=0)
+    ranking = sorted(resultado_visible["totales_destinatario"].items(), key=lambda item: (item[1], item[0]), reverse=True)
+    resultado_visible["ranking_descendente"] = ranking
+    resultado_visible["top_10"] = [
+        {"pos": pos, "nombre": nombre, "cant": cant,
+         "pct": round((cant / resultado_visible["gran_total"] * 100), 1) if resultado_visible["gran_total"] else 0}
+        for pos, (nombre, cant) in enumerate(ranking[:10], start=1)
+    ]
+    resultado_visible["suma_top10"] = sum(item["cant"] for item in resultado_visible["top_10"])
+    resultado_visible["pct_top10"] = round((resultado_visible["suma_top10"] / resultado_visible["gran_total"] * 100), 1) if resultado_visible["gran_total"] else 0
+    documentos_100_dias = [
+        item for item in resultado.get("documentos_100_dias", [])
+        if item["nombre"] not in ocultos
+    ]
+    resultado_visible["documentos_100_dias"] = documentos_100_dias
+    resultado_visible["total_documentos_100_dias"] = sum(item["cant"] for item in documentos_100_dias)
+    resultado_visible["total_trabajadores_100_dias"] = len(documentos_100_dias)
+    return resultado_visible
 
 def convertir_a_fecha_dma(valor_raw):
     """
@@ -91,14 +128,22 @@ def procesar_sgd_excel(ruta_archivo, tipo_estado="NO LEIDOS", fecha_corte_str=No
 
     for r in range(1, min(30, ws.max_row + 1)):
         row_cells = [str(ws.cell(row=r, column=c).value or "").strip().upper() for c in range(1, ws.max_column + 1)]
-        
-        for idx, val in enumerate(row_cells, start=1):
-            if not col_destinatario and any(k in val for k in ["DESTINATARIO", "DESTINO", "USUARIO DESTINO", "RECEPTOR", "NOMBRE DEL DESTINATARIO", "PERSONA", "NOMBRE"]):
-                col_destinatario = idx
-            if not col_fecha_emi and any(k in val for k in ["FECHA EMI", "F. EMI", "F.EMI", "FECHA DE EMI", "FECHA_EMI", "FECHA EMIS", "F.EMIS", "FECHA"]):
-                col_fecha_emi = idx
+        destinatario_candidato = None
+        fecha_emision_candidata = None
+        fecha_generica_candidata = None
 
-        if col_destinatario and col_fecha_emi:
+        for idx, val in enumerate(row_cells, start=1):
+            if destinatario_candidato is None and any(k in val for k in ["DESTINATARIO", "DESTINO", "USUARIO DESTINO", "RECEPTOR", "NOMBRE DEL DESTINATARIO", "PERSONA", "NOMBRE"]):
+                destinatario_candidato = idx
+            if fecha_emision_candidata is None and any(k in val for k in ["FECHA EMI", "F. EMI", "F.EMI", "FECHA DE EMI", "FECHA_EMI", "FECHA EMIS", "F.EMIS"]):
+                fecha_emision_candidata = idx
+            elif fecha_generica_candidata is None and "FECHA" in val:
+                fecha_generica_candidata = idx
+
+        fecha_candidata = fecha_emision_candidata or fecha_generica_candidata
+        if destinatario_candidato and fecha_candidata:
+            col_destinatario = destinatario_candidato
+            col_fecha_emi = fecha_candidata
             header_row = r
             break
 
@@ -141,7 +186,7 @@ def procesar_sgd_excel(ruta_archivo, tipo_estado="NO LEIDOS", fecha_corte_str=No
     gran_total = sum(totales_por_destinatario.values())
     total_trabajadores = len(destinatarios_filas)
 
-    ranking_descendente = sorted(totales_por_destinatario.items(), key=lambda x: x, reverse=True)
+    ranking_descendente = sorted(totales_por_destinatario.items(), key=lambda x: (x[1], x[0]), reverse=True)
     top_10 = ranking_descendente[:10]
 
     top_10_detalle = []
@@ -194,6 +239,34 @@ def procesar_sgd_excel(ruta_archivo, tipo_estado="NO LEIDOS", fecha_corte_str=No
     for r_k, r_v in rangos_antiguedad.items():
         r_v["pct"] = round((r_v["cant"] / gran_total * 100), 1) if gran_total > 0 else 0
 
+    documentos_100_dias = []
+    documentos_sin_fecha = 0
+    if str(tipo_estado).strip().upper().replace(" ", "_") in {"NO_LEIDOS", "RECIBIDOS"}:
+        for destinatario, documentos_por_fecha in tabla_dinamica.items():
+            cantidad_vencida = 0
+            fecha_mas_antigua = None
+            antiguedad_maxima = 0
+            for fecha, cantidad in documentos_por_fecha.items():
+                try:
+                    fecha_documento = datetime.strptime(fecha, "%d/%m/%Y")
+                except (TypeError, ValueError):
+                    documentos_sin_fecha += cantidad
+                    continue
+                antiguedad = (dt_corte - fecha_documento).days
+                if antiguedad >= 100:
+                    cantidad_vencida += cantidad
+                    if antiguedad > antiguedad_maxima:
+                        antiguedad_maxima = antiguedad
+                        fecha_mas_antigua = fecha
+            if cantidad_vencida:
+                documentos_100_dias.append({
+                    "nombre": destinatario,
+                    "cant": cantidad_vencida,
+                    "fecha_mas_antigua": fecha_mas_antigua,
+                    "dias_max": antiguedad_maxima
+                })
+    documentos_100_dias.sort(key=lambda item: (-item["dias_max"], -item["cant"], item["nombre"]))
+
     fechas_detalle = []
     for f in fechas_columnas:
         cant_f = totales_por_fecha.get(f, 0)
@@ -224,6 +297,10 @@ def procesar_sgd_excel(ruta_archivo, tipo_estado="NO LEIDOS", fecha_corte_str=No
         "suma_top10": suma_top10,
         "pct_top10": pct_top10,
         "rangos_antiguedad": rangos_antiguedad,
+        "documentos_100_dias": documentos_100_dias,
+        "total_documentos_100_dias": sum(item["cant"] for item in documentos_100_dias),
+        "total_trabajadores_100_dias": len(documentos_100_dias),
+        "documentos_sin_fecha": documentos_sin_fecha,
         "fechas_detalle": fechas_detalle,
         "criticos_count": criticos_count,
         "medios_count": medios_count,
@@ -268,9 +345,6 @@ def generar_excel_sgd(resultado, tipo_estado, fecha_corte_str):
             cell.alignment = Alignment(horizontal="center", vertical="center", text_rotation=90)
 
     cell_fill_pink = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
-    fill_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-    fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-    fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
 
     for r_idx, persona in enumerate(resultado["destinatarios"], start=4):
         total_p = resultado["totales_destinatario"].get(persona, 0)
@@ -292,12 +366,6 @@ def generar_excel_sgd(resultado, tipo_estado, fecha_corte_str):
             elif col_idx == len(headers):
                 c.alignment = Alignment(horizontal="center", vertical="center")
                 c.font = Font(name="Calibri", size=9, bold=True)
-                if total_p <= 3:
-                    c.fill = fill_green
-                elif total_p <= 10:
-                    c.fill = fill_yellow
-                else:
-                    c.fill = fill_red
             else:
                 c.alignment = Alignment(horizontal="center", vertical="center")
                 c.font = Font(name="Calibri", size=9)
@@ -325,7 +393,15 @@ def generar_excel_sgd(resultado, tipo_estado, fecha_corte_str):
     for col_idx in range(2, len(headers)):
         col_let = openpyxl.utils.get_column_letter(col_idx)
         ws.column_dimensions[col_let].width = 6
-    ws.column_dimensions[openpyxl.utils.get_column_letter(len(headers))].width = 12
+    total_col_letter = openpyxl.utils.get_column_letter(len(headers))
+    ws.column_dimensions[total_col_letter].width = 12
+    if len(resultado["destinatarios"]):
+        ws.conditional_formatting.add(
+            f"{total_col_letter}4:{total_col_letter}{row_foot - 1}",
+            ColorScaleRule(start_type="min", start_color="C6EFCE",
+                           mid_type="percentile", mid_value=50, mid_color="FFF2CC",
+                           end_type="max", end_color="F8CBAD")
+        )
 
     buffer = BytesIO()
     wb.save(buffer)

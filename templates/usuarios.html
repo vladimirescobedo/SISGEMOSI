@@ -24,6 +24,13 @@
     }
 </style>
 
+<!-- Breadcrumb -->
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Gestión de Usuarios</span>
+</nav>
+
 <!-- Cabecera -->
 <div class="card shadow-sm border-0 mb-3 bg-white no-print">
     <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
@@ -73,12 +80,12 @@
             <table class="table table-hover table-striped align-middle mb-0" id="tablaUsuarios">
                 <thead class="table-dark">
                     <tr>
-                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(0)" style="width: 10%;">ID <span id="sortUs0">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(1)" style="width: 30%;">Nombre Completo <span id="sortUs1">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(2)" style="width: 20%;">Usuario (Login) <span id="sortUs2">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(3)" style="width: 15%;">Rol / Nivel <span id="sortUs3">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(4)" style="width: 15%;">Fecha Creación <span id="sortUs4">↕</span></th>
-                        <th style="width: 10%;" class="text-center">Acciones</th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(0)" style="width: 10%;"><i class="bi bi-hash me-1"></i>ID <span id="sortUs0">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(1)" style="width: 30%;"><i class="bi bi-person-badge me-1"></i>Nombre Completo <span id="sortUs1">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(2)" style="width: 20%;"><i class="bi bi-person-lock me-1"></i>Usuario (Login) <span id="sortUs2">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(3)" style="width: 15%;"><i class="bi bi-shield-check me-1"></i>Rol / Nivel <span id="sortUs3">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaUsuarios(4)" style="width: 15%;"><i class="bi bi-calendar-plus me-1"></i>Fecha Creación <span id="sortUs4">↕</span></th>
+                        <th style="width: 10%;" class="text-center"><i class="bi bi-tools me-1"></i>Acciones</th>
                     </tr>
                 </thead>
                 <tbody id="tbodyUsuarios">
@@ -98,7 +105,8 @@
                         <td class="text-center">
                             <div class="btn-group" role="group">
                                 <button class="btn btn-sm btn-outline-warning" title="Editar Usuario"
-                                    onclick="abrirModalEditarUsuario('{{ u.id }}', '{{ u.nombre_completo }}', '{{ u.usuario }}', '{{ u.rol }}')">
+                                    data-id="{{ u.id }}" data-nombre="{{ u.nombre_completo }}" data-rol="{{ u.rol }}" data-permisos='{{ u.permisos|tojson }}'
+                                    onclick="abrirModalEditarUsuario(this)">
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
                                 {% if u.id != session.get('usuario_id') %}
@@ -127,23 +135,37 @@
             </div>
             <div class="modal-body row g-3">
                 <div class="col-12">
-                    <label class="form-label fw-bold">Nombre Completo *</label>
-                    <input type="text" name="nombre_completo" class="form-control" required placeholder="Ej: Juan Pérez Morales">
+                    <label class="form-label fw-bold"><i class="bi bi-person-badge me-1 text-primary"></i>Trabajador activo *</label>
+                    <select name="trabajador_id" id="nuevo_trabajador_id" class="form-select" required onchange="actualizarCredencialesTrabajador(this)">
+                        <option value="">-- Seleccione un trabajador activo --</option>
+                        {% for trabajador in trabajadores_activos %}
+                        <option value="{{ trabajador.id }}" data-nombres="{{ trabajador.nombres }}" data-paterno="{{ trabajador.apellido_paterno }}" data-materno="{{ trabajador.apellido_materno }}">{{ trabajador.apellido_paterno }} {{ trabajador.apellido_materno }}, {{ trabajador.nombres }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Nombre de Usuario (Login) *</label>
-                    <input type="text" name="usuario" class="form-control" required placeholder="Ej: jperez">
+                    <label class="form-label fw-bold"><i class="bi bi-person-lock me-1 text-primary"></i>Usuario generado</label>
+                    <input type="text" id="nuevo_usuario" class="form-control" readonly placeholder="Se generará automáticamente">
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label fw-bold">Contraseña *</label>
-                    <input type="password" name="password" class="form-control" required placeholder="••••••••••••">
+                    <label class="form-label fw-bold"><i class="bi bi-key me-1 text-primary"></i>Contraseña inicial</label>
+                    <input type="text" id="nuevo_password" class="form-control" readonly placeholder="Se mostrará al crear la cuenta">
                 </div>
                 <div class="col-12">
-                    <label class="form-label fw-bold">Rol / Permisos</label>
+                    <label class="form-label fw-bold"><i class="bi bi-shield-check me-1 text-primary"></i>Rol / Permisos</label>
                     <select name="rol" class="form-select">
                         <option value="USUARIO">USUARIO OPERADOR (Sin Permiso de Eliminar)</option>
                         <option value="ADMIN">ADMINISTRADOR (Control Total)</option>
                     </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold"><i class="bi bi-ui-checks-grid me-1 text-primary"></i>Permisos por módulo</label>
+                    <div class="table-responsive border rounded">
+                        <table class="table table-sm mb-0 align-middle">
+                            <thead class="table-light"><tr><th>Módulo</th>{% for accion, etiqueta in permission_actions.items() %}<th>{{ etiqueta }}</th>{% endfor %}</tr></thead>
+                            <tbody>{% for modulo, etiqueta in permission_modules.items() %}<tr><td class="fw-bold">{{ etiqueta }}</td>{% for accion in permission_actions %}<td><div class="form-check d-flex justify-content-center"><input class="form-check-input permiso-nuevo" type="checkbox" name="permiso" value="{{ modulo }}:{{ accion }}"></div></td>{% endfor %}</tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -165,19 +187,28 @@
             <div class="modal-body row g-3">
                 <input type="hidden" name="usuario_id" id="edit_usuario_id">
                 <div class="col-12">
-                    <label class="form-label fw-bold">Nombre Completo *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-badge me-1 text-primary"></i>Nombre Completo *</label>
                     <input type="text" name="nombre_completo" id="edit_usuario_nombre" class="form-control" required>
                 </div>
                 <div class="col-12">
-                    <label class="form-label">Nueva Contraseña (dejar en blanco para conservar la actual)</label>
+                    <label class="form-label"><i class="bi bi-key me-1 text-primary"></i>Nueva Contraseña (dejar en blanco para conservar la actual)</label>
                     <input type="password" name="password" class="form-control" placeholder="Nueva contraseña opcional">
                 </div>
                 <div class="col-12">
-                    <label class="form-label fw-bold">Rol / Permisos</label>
+                    <label class="form-label fw-bold"><i class="bi bi-shield-check me-1 text-primary"></i>Rol / Permisos</label>
                     <select name="rol" id="edit_usuario_rol" class="form-select">
                         <option value="USUARIO">USUARIO OPERADOR</option>
                         <option value="ADMIN">ADMINISTRADOR</option>
                     </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold"><i class="bi bi-ui-checks-grid me-1 text-primary"></i>Permisos por módulo</label>
+                    <div class="table-responsive border rounded">
+                        <table class="table table-sm mb-0 align-middle">
+                            <thead class="table-light"><tr><th>Módulo</th>{% for accion, etiqueta in permission_actions.items() %}<th>{{ etiqueta }}</th>{% endfor %}</tr></thead>
+                            <tbody>{% for modulo, etiqueta in permission_modules.items() %}<tr><td class="fw-bold">{{ etiqueta }}</td>{% for accion in permission_actions %}<td><div class="form-check d-flex justify-content-center"><input class="form-check-input permiso-edicion" type="checkbox" name="permiso" value="{{ modulo }}:{{ accion }}"></div></td>{% endfor %}</tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -270,11 +301,27 @@ function ordenarManualUsuarios(colIdx, dir) {
     filtrarTablaUsuarios();
 }
 
-function abrirModalEditarUsuario(id, nombre, usuario, rol) {
-    document.getElementById('edit_usuario_id').value = id;
-    document.getElementById('edit_usuario_nombre').value = nombre;
-    document.getElementById('edit_usuario_rol').value = rol;
+function abrirModalEditarUsuario(boton) {
+    document.getElementById('edit_usuario_id').value = boton.dataset.id;
+    document.getElementById('edit_usuario_nombre').value = boton.dataset.nombre;
+    document.getElementById('edit_usuario_rol').value = boton.dataset.rol;
+    const permisos = JSON.parse(boton.dataset.permisos || '{}');
+    document.querySelectorAll('.permiso-edicion').forEach(function (checkbox) {
+        const partes = checkbox.value.split(':');
+        checkbox.checked = (permisos[partes[0]] || []).includes(partes[1]);
+    });
     new bootstrap.Modal(document.getElementById('modalEditarUsuario')).show();
+}
+
+function actualizarCredencialesTrabajador(select) {
+    const option = select.options[select.selectedIndex];
+    const normalizar = valor => valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+    const nombres = normalizar(option.dataset.nombres || '');
+    const paterno = normalizar(option.dataset.paterno || '');
+    const materno = normalizar(option.dataset.materno || '');
+    const credencial = nombres && paterno && materno ? nombres.charAt(0) + paterno + materno.charAt(0) : '';
+    document.getElementById('nuevo_usuario').value = credencial;
+    document.getElementById('nuevo_password').value = credencial;
 }
 
 function abrirModalEliminarUsuario(id, nombre) {

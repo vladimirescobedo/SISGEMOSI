@@ -13,6 +13,13 @@
     }
 </style>
 
+<!-- Breadcrumb -->
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Reportes y Trazabilidad</span>
+</nav>
+
 <!-- Tarjetas Estadísticas -->
 <div class="row g-3 mb-4 no-print">
     <div class="col-md-3">
@@ -108,12 +115,13 @@
 
         <!-- Fila 2: Pestañas de Estado y Exportación -->
         <div class="d-flex flex-wrap align-items-center gap-2 mb-3 pb-3 border-bottom">
-            <label for="filtroCategoria" class="fw-bold small text-muted">Categoría:</label>
+            <label for="filtroCategoria" class="fw-bold small text-muted"><i class="bi bi-grid me-1 text-primary"></i>Categoría:</label>
             <select id="filtroCategoria" class="form-select form-select-sm" style="width: 220px;" onchange="cambiarCategoriaReporte(this.value)">
                 <option value="TODAS" {% if categoria == 'TODAS' %}selected{% endif %}>Todos los equipos</option>
                 <option value="MOVILES" {% if categoria == 'MOVILES' %}selected{% endif %}>Móviles / celulares</option>
                 <option value="TOKENS" {% if categoria == 'TOKENS' %}selected{% endif %}>Tokens</option>
                 <option value="INFORMATICOS" {% if categoria == 'INFORMATICOS' %}selected{% endif %}>Informáticos</option>
+                <option value="MOBILIARIO" {% if categoria == 'MOBILIARIO' %}selected{% endif %}>Mobiliario</option>
             </select>
         </div>
 
@@ -189,12 +197,12 @@
             <table class="table table-hover table-striped align-middle mb-0">
                 <thead class="table-dark">
                     <tr>
-                        <th class="sortable-header" onclick="ordenarColumnaReporte(0)" style="width: 12%;">Cód. Margesí <span id="sortRep0">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaReporte(1)" style="width: 14%;">Categoría <span id="sortRep1">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaReporte(2)" style="width: 24%;">Descripción <span id="sortRep2">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaReporte(3)" style="width: 16%;">Marca / Modelo <span id="sortRep3">↕</span></th>
-                        <th class="sortable-header" onclick="ordenarColumnaReporte(4)" style="width: 14%;">N° Serie / Medidas <span id="sortRep4">↕</span></th>
-                        <th style="width: 10%;">Estado</th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(0)" style="width: 12%;"><i class="bi bi-upc-scan me-1"></i>Cód. Margesí <span id="sortRep0">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(1)" style="width: 14%;"><i class="bi bi-grid me-1"></i>Categoría <span id="sortRep1">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(2)" style="width: 24%;"><i class="bi bi-card-text me-1"></i>Descripción <span id="sortRep2">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(3)" style="width: 16%;"><i class="bi bi-tag me-1"></i>Marca / Modelo <span id="sortRep3">↕</span></th>
+                        <th class="sortable-header" onclick="ordenarColumnaReporte(4)" style="width: 14%;"><i class="bi bi-hash me-1"></i>N° Serie / Medidas <span id="sortRep4">↕</span></th>
+                        <th style="width: 10%;"><i class="bi bi-activity me-1"></i>Estado</th>
                     </tr>
                 </thead>
                 <tbody id="tbodyReportes">

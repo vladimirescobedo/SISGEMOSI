@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 
-<!-- Librerías de exportación en alta definición -->
+<!-- Librerías de exportación y gráficos -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
@@ -66,7 +67,7 @@
         padding: 3px 6px;
     }
     .sgd-table td.td-persona {
-        text-align: left;
+        text-align: center;
         font-weight: 600;
         min-width: 250px;
     }
@@ -78,6 +79,14 @@
     .total-verde { background-color: #c6efce !important; color: #006100; font-weight: bold; }
     .total-amarillo { background-color: #fff2cc !important; color: #9c6500; font-weight: bold; }
     .total-rojo { background-color: #f8cbad !important; color: #c00000; font-weight: bold; }
+    .total-degradado { font-weight: bold; color: #1f2937; }
+    .reporte-exportacion .sgd-table th { font-size: 0.62rem; }
+    .reporte-exportacion .sgd-table td { font-size: 0.62rem; padding: 2px 3px; }
+    .reporte-exportacion .sgd-table td.td-persona { min-width: 150px; width: 150px; }
+    .reporte-exportacion .sgd-table th.th-fecha,
+    .reporte-exportacion .th-fecha-wrapper { width: 23px; min-width: 23px; height: 78px; }
+    .reporte-exportacion .rotar-fecha { font-size: 0.58rem; }
+    .reporte-exportacion .sgd-table th:last-child { width: 48px !important; }
     .fila-total-pie td {
         background-color: #d9e1f2 !important;
         font-weight: bold;
@@ -87,15 +96,59 @@
         height: 8px;
         border-radius: 4px;
     }
+    .sgd-cta-wrap {
+        width: 100%;
+        margin-top: 0.5rem;
+    }
+    .sgd-new-corte-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6rem;
+        min-height: 58px;
+        padding: 0.9rem 1.6rem;
+        border: none;
+        border-radius: 16px;
+        font-weight: 800;
+        font-size: 1.05rem;
+        letter-spacing: 0.02em;
+        color: #fff;
+        background: linear-gradient(135deg, #0d6efd 0%, #1f4e79 45%, #0a3d6d 100%);
+        box-shadow: 0 10px 22px rgba(13, 110, 253, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.25s ease, background 0.25s ease;
+        animation: sgdPulse 1.8s ease-in-out infinite alternate;
+    }
+    .sgd-new-corte-btn:hover {
+        transform: translateY(-2px) scale(1.01);
+        box-shadow: 0 16px 28px rgba(13, 110, 253, 0.45);
+        filter: brightness(1.08);
+        background: linear-gradient(135deg, #0b5ed7 0%, #153b65 45%, #0b2d4d 100%);
+    }
+    .sgd-new-corte-btn:focus {
+        outline: 3px solid rgba(13, 110, 253, 0.28);
+        outline-offset: 2px;
+    }
+    @keyframes sgdPulse {
+        0% { box-shadow: 0 8px 18px rgba(13,110,253,0.25); }
+        100% { box-shadow: 0 14px 30px rgba(31,78,121,0.45); }
+    }
 </style>
+
+<!-- Breadcrumb -->
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Monitor SGD</span>
+</nav>
 
 <!-- Barra Superior: Selector de Submódulos (NO LEÍDOS / RECIBIDOS) -->
 <div class="card shadow-sm border-0 mb-3 bg-white no-print">
     <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
-        <div class="d-flex align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3 flex-wrap w-100">
             <h4 class="fw-bold mb-0 text-dark">
                 <i class="bi bi-file-earmark-bar-graph-fill me-2 text-danger"></i>Monitor de SGD
             </h4>
+
             <div class="btn-group" role="group">
                 <a href="/sgd?tipo=NO_LEIDOS" class="btn {% if tipo_activo == 'NO_LEIDOS' %}btn-danger fw-bold{% else %}btn-outline-danger{% endif %} px-3 py-2">
                     <i class="bi bi-envelope-x-fill me-1"></i> Documentos NO LEÍDOS
@@ -103,6 +156,13 @@
                 <a href="/sgd?tipo=RECIBIDOS" class="btn {% if tipo_activo == 'RECIBIDOS' %}btn-warning fw-bold text-dark{% else %}btn-outline-warning text-dark{% endif %} px-3 py-2">
                     <i class="bi bi-inboxes-fill me-1"></i> Documentos RECIBIDOS
                 </a>
+            </div>
+
+            <div class="sgd-cta-wrap ms-auto">
+                <button class="sgd-new-corte-btn" type="button" data-bs-toggle="collapse" data-bs-target="#panelSubidaCorte">
+                    <i class="bi bi-cloud-arrow-up-fill"></i>
+                    <span>Subir Nuevo Corte</span>
+                </button>
             </div>
         </div>
 
@@ -119,9 +179,6 @@
                 <i class="bi bi-file-earmark-excel-fill me-1"></i> Exportar en Excel
             </a>
             {% endif %}
-            <button class="btn btn-outline-dark fw-bold shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#panelSubidaCorte">
-                <i class="bi bi-plus-circle-fill me-1 text-primary"></i> + Subir Nuevo Corte
-            </button>
         </div>
     </div>
 </div>
@@ -287,7 +344,7 @@
                         <table class="table table-sm sgd-table align-middle mb-0" id="tablaSGDOficial">
                             <thead>
                                 <tr>
-                                    <th style="text-align: left; padding-left: 8px; width: 250px;">DESTINATARIO</th>
+                                    <th style="text-align: center; padding-left: 8px; width: 250px;"><i class="bi bi-person-lines-fill me-1"></i>DESTINATARIO</th>
                                     {% for f in resultado.fechas %}
                                     <th class="th-fecha">
                                         <div class="th-fecha-wrapper">
@@ -295,25 +352,38 @@
                                         </div>
                                     </th>
                                     {% endfor %}
-                                    <th style="width: 70px;">Total general</th>
+                                    <th style="width: 70px;"><i class="bi bi-calculator me-1"></i>Total general</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for p in resultado.destinatarios %}
                                 {% set tot_p = resultado.totales_destinatario.get(p, 0) %}
                                 <tr>
-                                    <td class="td-persona">{{ p }}</td>
+                                    <td class="td-persona">
+                                        <div class="d-flex align-items-center justify-content-center gap-2">
+                                            <span>{{ p }}</span>
+                                            {% if corte_activo %}
+                                            <form action="/sgd/ocultar-destinatario/{{ corte_activo.id }}" method="POST" class="no-print">
+                                                <input type="hidden" name="destinatario" value="{{ p }}">
+                                                <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Ocultar destinatario" aria-label="Ocultar destinatario">
+                                                    <i class="bi bi-eye-slash"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     {% for f in resultado.fechas %}
                                     {% set cant = resultado.matriz.get(p, {}).get(f, '') %}
                                     <td class="{% if cant %}celda-valor{% endif %}">{{ cant or '' }}</td>
                                     {% endfor %}
-                                    <td class="{% if tot_p <= 3 %}total-verde{% elif tot_p <= 10 %}total-amarillo{% else %}total-rojo{% endif %}">
+                                    {% set rango_total = ((tot_p - resultado.total_min) / (resultado.total_max - resultado.total_min) * 120)|round(0) if resultado.total_max > resultado.total_min else 60 %}
+                                    <td class="total-degradado" style="background-color: hsl({{ 120 - rango_total }}, 75%, 78%) !important;">
                                         {{ tot_p }}
                                     </td>
                                 </tr>
                                 {% endfor %}
                                 <tr class="fila-total-pie">
-                                    <td style="text-align: left; padding-left: 8px;">Total general</td>
+                                    <td style="text-align: center; padding-left: 8px;">Total general</td>
                                     {% for f in resultado.fechas %}
                                     <td>{{ resultado.totales_fecha.get(f, 0) }}</td>
                                     {% endfor %}
@@ -322,6 +392,18 @@
                             </tbody>
                         </table>
                     </div>
+                    {% if resultado.destinatarios_ocultos %}
+                    <div class="alert alert-secondary mt-3 mb-0 no-print">
+                        <strong><i class="bi bi-eye-slash me-1"></i>Destinatarios ocultos:</strong>
+                        {% for p in resultado.destinatarios_ocultos %}
+                        <form action="/sgd/ocultar-destinatario/{{ corte_activo.id }}" method="POST" class="d-inline-block ms-2">
+                            <input type="hidden" name="destinatario" value="{{ p }}">
+                            <input type="hidden" name="accion" value="mostrar">
+                            <button type="submit" class="btn btn-sm btn-outline-primary py-0">{{ p }} <i class="bi bi-eye"></i></button>
+                        </form>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
@@ -364,7 +446,17 @@
                             {% set pct_p = (cant / resultado.gran_total * 100)|round(1) %}
                             <tr data-nombre="{{ p }}" data-cantidad="{{ cant }}">
                                 <td class="text-center col-indice"><strong>#{{ loop.index }}</strong></td>
-                                <td class="fw-bold text-dark col-nombre">{{ p }}</td>
+                                <td class="fw-bold text-dark col-nombre">
+                                    <div class="d-flex align-items-center justify-content-between gap-2">
+                                        <span>{{ p }}</span>
+                                        {% if corte_activo %}
+                                        <form action="/sgd/ocultar-destinatario/{{ corte_activo.id }}" method="POST" class="no-print">
+                                            <input type="hidden" name="destinatario" value="{{ p }}">
+                                            <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Ocultar destinatario" aria-label="Ocultar destinatario"><i class="bi bi-eye-slash"></i></button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                </td>
                                 <td class="text-center col-cantidad">
                                     <strong class="fs-5 {% if cant > 10 %}text-danger{% elif cant > 3 %}text-warning{% else %}text-success{% endif %}">{{ cant }}</strong>
                                 </td>
@@ -389,6 +481,55 @@
 
             <!-- SECCIÓN 3: DASHBOARD & ANÁLISIS EJECUTIVO -->
             <div class="tab-pane fade p-4" id="pills-dashboard" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card border-0 border-start border-{% if tipo_activo == 'NO_LEIDOS' %}danger{% else %}warning{% endif %} border-4 shadow-sm p-3">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pb-2 mb-3">
+                                <h5 class="fw-bold {% if tipo_activo == 'NO_LEIDOS' %}text-danger{% else %}text-warning{% endif %} mb-0"><i class="bi bi-exclamation-octagon-fill me-2"></i>Documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS sin atención" }} con 100 días o más</h5>
+                                {% if resultado.documentos_100_dias is defined %}
+                                <div class="d-flex gap-2">
+                                    <span class="badge bg-danger fs-6">{{ resultado.total_documentos_100_dias }} documentos</span>
+                                    <span class="badge bg-dark fs-6">{{ resultado.total_trabajadores_100_dias }} trabajadores</span>
+                                </div>
+                                {% else %}
+                                <span class="badge bg-secondary">Corte anterior al análisis</span>
+                                {% endif %}
+                            </div>
+                            <p class="small text-muted mb-3">Permanecen en el reporte {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }} al corte <strong>{{ fecha_corte }}</strong>. La antigüedad se calcula desde la fecha de emisión de este mismo corte.</p>
+                            {% if resultado.documentos_100_dias is not defined %}
+                            <div class="alert alert-warning mb-0"><i class="bi bi-info-circle-fill me-2"></i>Este corte histórico no contiene el análisis de 100 días. La alerta estará disponible al cargar un nuevo corte {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }}.</div>
+                            {% elif resultado.documentos_100_dias %}
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0">
+                                    <thead class="table-danger">
+                                        <tr>
+                                            <th>Trabajador (destinatario)</th>
+                                            <th class="text-center">Documentos ≥ 100 días</th>
+                                            <th class="text-center">Fecha de emisión más antigua</th>
+                                            <th class="text-center">Antigüedad máxima</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for item in resultado.documentos_100_dias %}
+                                        <tr>
+                                            <td class="fw-bold">{{ item.nombre }}</td>
+                                            <td class="text-center"><span class="badge bg-danger">{{ item.cant }}</span></td>
+                                            <td class="text-center">{{ item.fecha_mas_antigua }}</td>
+                                            <td class="text-center fw-bold text-danger">{{ item.dias_max }} días</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <div class="alert alert-success mb-0"><i class="bi bi-check-circle-fill me-2"></i>No hay documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS sin atención" }} con antigüedad verificable de 100 días o más en este corte.</div>
+                            {% endif %}
+                            {% if resultado.documentos_sin_fecha %}
+                            <div class="alert alert-warning small mt-3 mb-0"><i class="bi bi-calendar-x me-1"></i>{{ resultado.documentos_sin_fecha }} documentos no tienen fecha de emisión válida y no se incluyen en el cálculo de antigüedad.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
                 <div class="row g-4">
                     
                     <!-- Ranking Top con Ordenamiento -->
@@ -453,31 +594,36 @@
                         </div>
                     </div>
 
-                    <!-- Desglose por Fechas -->
+                    <!-- Panel Gráfico Estadístico Inteligente -->
                     <div class="col-12">
-                        <div class="card border-0 shadow-sm bg-light p-3">
-                            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 border-bottom pb-2">
-                                <h5 class="fw-bold text-dark mb-0"><i class="bi bi-calendar-range-fill me-2 text-info"></i>Distribución de Documentos por Fecha de Emisión</h5>
-                                <div class="btn-group btn-group-sm">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" onclick="ordenarDashboardFechas('fecha', 'asc')">Fecha ▲</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" onclick="ordenarDashboardFechas('fecha', 'desc')">Fecha ▼</button>
-                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="ordenarDashboardFechas('cant', 'desc')">Mayor Carga ▼</button>
-                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold" onclick="ordenarDashboardFechas('cant', 'asc')">Menor Carga ▲</button>
-                                </div>
+                        <div class="card border-0 shadow-sm bg-white p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
+                                <h5 class="fw-bold text-dark mb-0">
+                                    <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Análisis Visual de Carga Documentaria SGD
+                                </h5>
+                                <span class="badge bg-primary fs-6">{{ resultado.gran_total }} Documentos Totales</span>
                             </div>
                             
-                            <div class="row g-2" id="contenedorDashboardFechas">
-                                {% for fd in resultado.fechas_detalle %}
-                                <div class="col-lg-3 col-md-4 col-sm-6 item-dashboard-fecha" data-fecha="{{ fd.fecha }}" data-cant="{{ fd.cant }}">
-                                    <div class="bg-white p-2 rounded border d-flex justify-content-between align-items-center">
-                                        <small class="fw-bold text-dark"><i class="bi bi-calendar3 me-1 text-primary"></i>{{ fd.fecha }}</small>
-                                        <div>
-                                            <span class="badge bg-primary me-1">{{ fd.cant }}</span>
-                                            <small class="text-muted fw-bold">{{ fd.pct }}%</small>
-                                        </div>
+                            <div class="row g-4 align-items-center">
+                                <!-- Gráfico de Barras: Tendencia por Fecha -->
+                                <div class="col-lg-8">
+                                    <h6 class="fw-bold text-muted mb-2 text-center small text-uppercase">
+                                        <i class="bi bi-bar-chart-fill me-1 text-info"></i>Volumen de Documentos por Fecha de Emisión
+                                    </h6>
+                                    <div style="height: 260px; position: relative;">
+                                        <canvas id="graficoBarrasFechas"></canvas>
                                     </div>
                                 </div>
-                                {% endfor %}
+
+                                <!-- Gráfico Circular: Proporción por Criticidad -->
+                                <div class="col-lg-4 border-start">
+                                    <h6 class="fw-bold text-muted mb-2 text-center small text-uppercase">
+                                        <i class="bi bi-pie-chart-fill me-1 text-danger"></i>Distribución por Antigüedad
+                                    </h6>
+                                    <div style="height: 230px; position: relative;" class="d-flex justify-content-center">
+                                        <canvas id="graficoDonaAntiguedad"></canvas>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -491,12 +637,23 @@
 {% endif %}
 
 <script>
-function exportarTablaJPG() {
+function prepararElementoExportacion() {
     const elemento = document.getElementById('contenedorTablaSGD');
+    if (!elemento) return null;
+    const copia = elemento.cloneNode(true);
+    copia.querySelectorAll('.no-print').forEach(nodo => nodo.remove());
+    copia.classList.add('reporte-exportacion');
+    copia.style.width = '100%';
+    return copia;
+}
+
+function exportarTablaJPG() {
+    const elemento = prepararElementoExportacion();
     if (!elemento) return;
+    document.body.appendChild(elemento);
 
     html2canvas(elemento, {
-        scale: 2,
+        scale: 1.5,
         backgroundColor: '#ffffff',
         useCORS: true
     }).then(canvas => {
@@ -504,21 +661,24 @@ function exportarTablaJPG() {
         enlace.download = 'Reporte_SGD_{{ tipo_activo }}.jpg';
         enlace.href = canvas.toDataURL('image/jpeg', 0.98);
         enlace.click();
+        elemento.remove();
     });
 }
 
 function exportarTablaPDF() {
-    const elemento = document.getElementById('contenedorTablaSGD');
+    const elemento = prepararElementoExportacion();
     if (!elemento) return;
+    document.body.appendChild(elemento);
 
     const opciones = {
-        margin: 8,
+        margin: [5, 5, 5, 5],
         filename: 'Reporte_SGD_{{ tipo_activo }}.pdf',
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+        html2canvas: { scale: 1.2, useCORS: true, backgroundColor: '#ffffff', windowWidth: elemento.scrollWidth },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape', compress: true },
+        pagebreak: { mode: ['css', 'legacy'] }
     };
-    html2pdf().set(opciones).from(elemento).save();
+    html2pdf().set(opciones).from(elemento).save().then(() => elemento.remove());
 }
 
 function filtrarTablaDinamica(texto) {
@@ -606,31 +766,84 @@ function ordenarDashboardTop(criterio, direccion) {
     });
 }
 
-function ordenarDashboardFechas(criterio, direccion) {
-    const contenedor = document.getElementById('contenedorDashboardFechas');
-    const items = Array.from(contenedor.querySelectorAll('.item-dashboard-fecha'));
+// ===== INICIALIZAR GRÁFICOS CHART.JS =====
+document.addEventListener('DOMContentLoaded', function() {
+    {% if resultado %}
+    // 1. Gráfico de Barras por Fecha
+    const ctxBarras = document.getElementById('graficoBarrasFechas');
+    if (ctxBarras) {
+        const labelsFechas = [{% for fd in resultado.fechas_detalle %}'{{ fd.fecha }}',{% endfor %}];
+        const dataFechas = [{% for fd in resultado.fechas_detalle %}{{ fd.cant }},{% endfor %}];
 
-    items.sort((a, b) => {
-        if (criterio === 'fecha') {
-            let fA = a.getAttribute('data-fecha') || '';
-            let fB = b.getAttribute('data-fecha') || '';
-            let parseKey = (f) => {
-                let p = f.split('/');
-                return p.length === 3 ? (p + p + p[0]) : f;
-            };
-            let kA = parseKey(fA);
-            let kB = parseKey(fB);
-            return direccion === 'asc' ? kA.localeCompare(kB) : kB.localeCompare(kA);
-        } else if (criterio === 'cant') {
-            let cA = parseInt(a.getAttribute('data-cant') || '0');
-            let cB = parseInt(b.getAttribute('data-cant') || '0');
-            return direccion === 'asc' ? (cA - cB) : (cB - cA);
-        }
-        return 0;
-    });
+        new Chart(ctxBarras, {
+            type: 'bar',
+            data: {
+                labels: labelsFechas,
+                datasets: [{
+                    label: 'Documentos',
+                    data: dataFechas,
+                    backgroundColor: 'rgba(13, 110, 253, 0.75)',
+                    borderColor: 'rgba(13, 110, 253, 1)',
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    hoverBackgroundColor: 'rgba(13, 110, 253, 0.95)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) { return `${ctx.raw} documentos`; }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 }
+                    },
+                    x: {
+                        ticks: { maxRotation: 45, minRotation: 45, font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    }
 
-    contenedor.innerHTML = '';
-    items.forEach(it => contenedor.appendChild(it));
-}
+    // 2. Gráfico de Dona por Antigüedad
+    const ctxDona = document.getElementById('graficoDonaAntiguedad');
+    if (ctxDona) {
+        const labelsRangos = [{% for rango, info in resultado.rangos_antiguedad.items() %}'{{ rango.split("(")[0].strip() }}',{% endfor %}];
+        const dataRangos = [{% for rango, info in resultado.rangos_antiguedad.items() %}{{ info.cant }},{% endfor %}];
+        const colorsRangos = ['#198754', '#0dcaf0', '#ffc107', '#dc3545', '#212529'];
+
+        new Chart(ctxDona, {
+            type: 'doughnut',
+            data: {
+                labels: labelsRangos,
+                datasets: [{
+                    data: dataRangos,
+                    backgroundColor: colorsRangos,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 12, font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    }
+    {% endif %}
+});
 </script>
 {% endblock %}

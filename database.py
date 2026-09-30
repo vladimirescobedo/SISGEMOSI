@@ -1,9 +1,19 @@
 import sqlite3
 
 def get_db():
-    conn = sqlite3.connect("sistema_prestamos.db")
+    conn = sqlite3.connect("sistema_prestamos.db", timeout=15)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 15000;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA cache_size = -32000;")
+    return conn
+
+def get_biblioteca_db():
+    conn = sqlite3.connect("biblioteca_pae.db", timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=15000;")
     return conn
 
 def init_db():
@@ -17,9 +27,18 @@ def init_db():
         password TEXT NOT NULL,
         nombre_completo TEXT NOT NULL,
         rol TEXT NOT NULL DEFAULT 'USUARIO',
+        permisos TEXT NOT NULL DEFAULT '{}',
         creado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+    columnas_usuarios = {
+        fila[1] for fila in cursor.execute("PRAGMA table_info(usuarios_sistema)").fetchall()
+    }
+    if "permisos" not in columnas_usuarios:
+        cursor.execute("ALTER TABLE usuarios_sistema ADD COLUMN permisos TEXT NOT NULL DEFAULT '{}'")
+    permisos_legacy = '{"personal":["ver","modificar","eliminar","reportar"],"prestamos":["ver","modificar","eliminar","reportar"],"actividades":["ver","modificar","eliminar","reportar"],"documentaria":["ver","modificar","eliminar","reportar"],"sgd":["ver","modificar","eliminar","reportar"],"reportes":["ver","reportar"]}'
+    cursor.execute("UPDATE usuarios_sistema SET permisos = ? WHERE permisos IS NULL", (permisos_legacy,))
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS trabajadores (
@@ -33,7 +52,8 @@ def init_db():
         correo_institucional TEXT,
         tipo_contrato TEXT,
         telefono TEXT,
-        fecha_nacimiento TEXT
+        fecha_nacimiento TEXT,
+        activo INTEGER NOT NULL DEFAULT 1
     )
     """)
 
@@ -42,6 +62,20 @@ def init_db():
     }
     if "celular_institucional" not in columnas_trabajadores:
         cursor.execute("ALTER TABLE trabajadores ADD COLUMN celular_institucional TEXT")
+    if "activo" not in columnas_trabajadores:
+        cursor.execute("ALTER TABLE trabajadores ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS contratos_trabajadores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trabajador_id INTEGER NOT NULL,
+        tipo_documento TEXT NOT NULL CHECK(tipo_documento IN ('OS', 'CAS')),
+        nombre_archivo TEXT NOT NULL,
+        ruta_archivo TEXT NOT NULL,
+        creado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(trabajador_id) REFERENCES trabajadores(id) ON DELETE CASCADE
+    )
+    """)
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS equipos (
@@ -102,6 +136,9 @@ def init_db():
         creado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+    columnas_actividades = {fila[1] for fila in cursor.execute("PRAGMA table_info(actividades_soporte)").fetchall()}
+    if "usuario_id" not in columnas_actividades:
+        cursor.execute("ALTER TABLE actividades_soporte ADD COLUMN usuario_id INTEGER")
 
     # TABLA PARA GUARDAR PERMANENTEMENTE LOS CORTES DE REPORTE SGD
     cursor.execute("""
@@ -116,6 +153,77 @@ def init_db():
         creado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+    columnas_cortes_sgd = {
+        fila[1] for fila in cursor.execute("PRAGMA table_info(reportes_sgd_cortes)").fetchall()
+    }
+    if "destinatarios_ocultos" not in columnas_cortes_sgd:
+        cursor.execute("ALTER TABLE reportes_sgd_cortes ADD COLUMN destinatarios_ocultos TEXT NOT NULL DEFAULT '[]'")
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS documentos_registrados (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo_documento TEXT NOT NULL,
+        numero TEXT,
+        numero_ordinal INTEGER DEFAULT 0,
+        titulo TEXT NOT NULL,
+        descripcion TEXT,
+        remitente TEXT,
+        destinatario TEXT,
+        fecha_emision TEXT,
+        requerimiento TEXT,
+        uso_documento TEXT,
+        resumen_gemini TEXT,
+        archivo_nombre TEXT,
+        archivo_ruta TEXT,
+        drive_url TEXT,
+        drive_file_id TEXT,
+        fuente TEXT DEFAULT 'MANUAL',
+        creado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS configuraciones_sistema (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clave TEXT UNIQUE NOT NULL,
+        valor TEXT,
+        actualizado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    columnas_documentos = {
+        fila[1] for fila in cursor.execute("PRAGMA table_info(documentos_registrados)").fetchall()
+    }
+    if "numero_ordinal" not in columnas_documentos:
+        cursor.execute("ALTER TABLE documentos_registrados ADD COLUMN numero_ordinal INTEGER DEFAULT 0")
+    if "uso_documento" not in columnas_documentos:
+        cursor.execute("ALTER TABLE documentos_registrados ADD COLUMN uso_documento TEXT")
+    if "usuario_id" not in columnas_documentos:
+        cursor.execute("ALTER TABLE documentos_registrados ADD COLUMN usuario_id INTEGER")
+
+    # ===== ÍNDICES DE RENDIMIENTO =====
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prestamos_equipo ON prestamos(equipo_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prestamos_trabajador ON prestamos(trabajador_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prestamos_estado ON prestamos(estado)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_equipos_categoria_estado ON equipos(categoria, estado)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_actividades_usuario_fecha ON actividades_soporte(usuario_id, fecha_programada)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_tipo_fecha ON documentos_registrados(tipo_documento, fecha_emision)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_trabajadores_activo ON trabajadores(activo)")
+
+    conn.commit()
+    conn.close()
+
+def init_biblioteca_db():
+    conn = get_biblioteca_db()
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS biblioteca_pae (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha_publicacion TEXT,
+        nombre_evento TEXT NOT NULL,
+        link TEXT NOT NULL,
+        observaciones TEXT,
+        creado_el TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
     conn.commit()
     conn.close()

@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+<link rel="stylesheet" href="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.css">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <div class="container-fluid py-3">
 
     <!-- Mensajes Flotantes -->
@@ -15,15 +17,24 @@
         {% endif %}
     {% endwith %}
 
+    <!-- Breadcrumb -->
+    <nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+        <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+        <span class="mx-2 text-muted">/</span>
+        <a href="/prestamos">Préstamos</a>
+        <span class="mx-2 text-muted">/</span>
+        <span class="text-muted fw-bold">{{ titulo_categoria }}</span>
+    </nav>
+
     <!-- Encabezado y Navegación -->
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <div>
-            <a href="/prestamos" class="btn btn-outline-secondary btn-sm mb-1">
-                <i class="bi bi-arrow-left me-1"></i> Volver a Submódulos
-            </a>
             <h3 class="fw-bold text-primary mb-0">{{ titulo_categoria }}</h3>
         </div>
         <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary shadow-sm" type="button" onclick="abrirLectorCodigo()">
+                <i class="bi bi-camera-fill me-1"></i> Escanear código
+            </button>
             <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoEquipo">
                 <i class="bi bi-plus-circle me-1"></i> Registrar Bien en esta Categoría
             </button>
@@ -113,16 +124,16 @@
                 <table class="table table-hover align-middle mb-0" id="tablaInventario">
                     <thead class="table-dark text-center">
                         <tr>
-                            <th style="width: 130px;">Cód. Margesí</th>
-                            <th>Descripción / Tipo</th>
-                            <th>Marca / Modelo</th>
-                            <th>Serie / IMEI</th>
-                            <th>Celular Institucional</th>
-                            <th>Estado Físico</th>
-                            <th>Control</th>
-                            <th>Custodio Actual</th>
-                            <th>Fecha Salida</th>
-                            <th style="width: 140px;">Acciones</th>
+                            <th style="width: 130px;"><i class="bi bi-upc-scan me-1"></i>Cód. Margesí</th>
+                            <th><i class="bi bi-box-seam me-1"></i>Descripción / Tipo</th>
+                            <th><i class="bi bi-tag me-1"></i>Marca / Modelo</th>
+                            <th><i class="bi bi-hash me-1"></i>Serie / IMEI</th>
+                            <th><i class="bi bi-phone me-1"></i>Celular Institucional</th>
+                            <th><i class="bi bi-heart-pulse me-1"></i>Estado Físico</th>
+                            <th><i class="bi bi-clipboard-check me-1"></i>Control</th>
+                            <th><i class="bi bi-person-badge me-1"></i>Custodio Actual</th>
+                            <th><i class="bi bi-calendar-event me-1"></i>Fecha Salida</th>
+                            <th style="width: 140px;"><i class="bi bi-tools me-1"></i>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -211,6 +222,27 @@
     </div>
 </div>
 
+<!-- MODAL: LECTOR DE CÓDIGO -->
+<div class="modal fade" id="modalLectorCodigo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-upc-scan me-2"></i>Escanear código Margesí</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="detenerLectorCodigo()"></button>
+            </div>
+            <div class="modal-body">
+                <div id="lectorCodigo" class="rounded overflow-hidden"></div>
+                <div id="resultadoCodigo" class="alert mt-3 mb-0 d-none" role="alert"></div>
+                <div class="input-group mt-3">
+                    <span class="input-group-text"><i class="bi bi-keyboard"></i></span>
+                    <input id="codigoManual" type="text" class="form-control" placeholder="También puede escribir el código">
+                    <button class="btn btn-outline-primary" type="button" onclick="buscarCodigoManual()">Buscar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- MODAL: REGISTRAR PRÉSTAMO -->
 <div class="modal fade" id="modalPrestamo" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -222,11 +254,11 @@
             <div class="modal-body">
                 <input type="hidden" name="equipo_id" id="prestamo_equipo_id">
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Equipo a entregar:</label>
+                    <label class="form-label fw-bold"><i class="bi bi-box-seam me-1 text-primary"></i>Equipo a entregar:</label>
                     <input type="text" id="prestamo_equipo_texto" class="form-control" readonly>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Seleccionar Trabajador (Custodio) *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-person-badge me-1 text-primary"></i>Seleccionar Trabajador (Custodio) *</label>
                     <select name="trabajador_id" class="form-select" required>
                         <option value="">-- Seleccionar Trabajador --</option>
                         {% for tr in trabajadores %}
@@ -235,7 +267,7 @@
                     </select>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Observaciones / Accesorios de Entrega:</label>
+                    <label class="form-label"><i class="bi bi-clipboard-check me-1 text-primary"></i>Observaciones / Accesorios de Entrega:</label>
                     <textarea name="observaciones_entrega" class="form-control" rows="2" placeholder="Ej: Con cargador original, cable USB y funda."></textarea>
                 </div>
             </div>
@@ -259,7 +291,7 @@
                 <input type="hidden" name="prestamo_id" id="devolucion_prestamo_id">
                 <p>¿Confirmar la recepción del bien <strong id="devolucion_equipo_texto"></strong> y retornar a <strong>EN ALMACÉN</strong>?</p>
                 <div class="mb-3">
-                    <label class="form-label">Observaciones de Recepción / Estado:</label>
+                    <label class="form-label"><i class="bi bi-clipboard-check me-1 text-primary"></i>Observaciones de Recepción / Estado:</label>
                     <textarea name="observaciones_devolucion" class="form-control" rows="2" placeholder="Ej: Devuelto en buen estado operativo, pantalla intacta."></textarea>
                 </div>
             </div>
@@ -282,34 +314,34 @@
             <div class="modal-body">
                 <input type="hidden" name="categoria" value="{{ categoria }}">
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Código Margesí / Interno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-upc-scan me-1 text-primary"></i>Código Margesí / Interno *</label>
                     <input type="text" name="codigo_margesi" class="form-control" required>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Descripción del Bien *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Bien *</label>
                     <input type="text" name="descripcion" class="form-control" placeholder="Ej: CELULAR SMARTPHONE GALAXY A14" required>
                 </div>
                 <div class="row g-2 mb-3">
                     <div class="col-6">
-                        <label class="form-label">Marca</label>
+                        <label class="form-label"><i class="bi bi-tag me-1 text-primary"></i>Marca</label>
                         <input type="text" name="marca" class="form-control" placeholder="Ej: SAMSUNG">
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Modelo</label>
+                        <label class="form-label"><i class="bi bi-box me-1 text-primary"></i>Modelo</label>
                         <input type="text" name="modelo" class="form-control" placeholder="Ej: A14 5G">
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Serie / IMEI / Medidas</label>
+                    <label class="form-label"><i class="bi bi-hash me-1 text-primary"></i>Serie / IMEI / Medidas</label>
                     <input type="text" name="serie_medidas" class="form-control" placeholder="Ej: 357494914612068">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Celular Institucional</label>
+                    <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
                     <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777">
                 </div>
                 <div class="row g-2 mb-3">
                     <div class="col-6">
-                        <label class="form-label">Estado Conservación</label>
+                        <label class="form-label"><i class="bi bi-heart-pulse me-1 text-primary"></i>Estado Conservación</label>
                         <select name="estado_conservacion" class="form-select">
                             <option value="BUENO">BUENO</option>
                             <option value="REGULAR">REGULAR</option>
@@ -317,12 +349,12 @@
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Sede</label>
+                        <label class="form-label"><i class="bi bi-geo-alt me-1 text-primary"></i>Sede</label>
                         <input type="text" name="sede" class="form-control" value="ABANCAY">
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Observaciones</label>
+                    <label class="form-label"><i class="bi bi-chat-left-text me-1 text-primary"></i>Observaciones</label>
                     <textarea name="observaciones" class="form-control" rows="2"></textarea>
                 </div>
             </div>
@@ -347,34 +379,34 @@
                 <input type="hidden" name="categoria" value="{{ categoria }}">
                 <input type="hidden" name="color" id="edit_color">
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Código Margesí / Interno *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-upc-scan me-1 text-primary"></i>Código Margesí / Interno *</label>
                     <input type="text" name="codigo_margesi" id="edit_codigo_margesi" class="form-control" required>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Descripción del Bien *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Bien *</label>
                     <input type="text" name="descripcion" id="edit_descripcion" class="form-control" required>
                 </div>
                 <div class="row g-2 mb-3">
                     <div class="col-6">
-                        <label class="form-label">Marca</label>
+                        <label class="form-label"><i class="bi bi-tag me-1 text-primary"></i>Marca</label>
                         <input type="text" name="marca" id="edit_marca" class="form-control">
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Modelo</label>
+                        <label class="form-label"><i class="bi bi-box me-1 text-primary"></i>Modelo</label>
                         <input type="text" name="modelo" id="edit_modelo" class="form-control">
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Serie / IMEI / Medidas</label>
+                    <label class="form-label"><i class="bi bi-hash me-1 text-primary"></i>Serie / IMEI / Medidas</label>
                     <input type="text" name="serie_medidas" id="edit_serie_medidas" class="form-control">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Celular Institucional</label>
+                    <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
                     <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control" placeholder="Ej: 999888777">
                 </div>
                 <div class="row g-2 mb-3">
                     <div class="col-6">
-                        <label class="form-label">Estado Conservación</label>
+                        <label class="form-label"><i class="bi bi-heart-pulse me-1 text-primary"></i>Estado Conservación</label>
                         <select name="estado_conservacion" id="edit_estado_conservacion" class="form-select">
                             <option value="BUENO">BUENO</option>
                             <option value="REGULAR">REGULAR</option>
@@ -382,12 +414,12 @@
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label">Sede</label>
+                        <label class="form-label"><i class="bi bi-geo-alt me-1 text-primary"></i>Sede</label>
                         <input type="text" name="sede" id="edit_sede" class="form-control">
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Observaciones</label>
+                    <label class="form-label"><i class="bi bi-chat-left-text me-1 text-primary"></i>Observaciones</label>
                     <textarea name="observaciones" id="edit_observaciones" class="form-control" rows="2"></textarea>
                 </div>
             </div>
@@ -442,6 +474,69 @@
 
 <!-- JAVASCRIPT DE FILTRADO Y MODALES -->
 <script>
+let lectorCodigo = null;
+
+function mostrarResultadoCodigo(mensaje, tipo) {
+    const resultado = document.getElementById('resultadoCodigo');
+    resultado.className = `alert alert-${tipo} mt-3 mb-0`;
+    resultado.innerText = mensaje;
+}
+
+function abrirLectorCodigo() {
+    const modal = new bootstrap.Modal(document.getElementById('modalLectorCodigo'));
+    modal.show();
+    document.getElementById('resultadoCodigo').className = 'alert mt-3 mb-0 d-none';
+    document.getElementById('codigoManual').value = '';
+    setTimeout(() => iniciarLectorCodigo(), 300);
+}
+
+function iniciarLectorCodigo() {
+    lectorCodigo = new Html5Qrcode('lectorCodigo');
+    lectorCodigo.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 280, height: 140 } },
+        codigo => procesarCodigoEscaneado(codigo),
+        () => {}
+    ).catch(() => mostrarResultadoCodigo('No se pudo activar la cámara. Verifique los permisos o use el campo manual.', 'warning'));
+}
+
+function detenerLectorCodigo() {
+    if (!lectorCodigo) return;
+    lectorCodigo.stop().catch(() => {}).finally(() => {
+        lectorCodigo.clear();
+        lectorCodigo = null;
+    });
+}
+
+function buscarCodigoManual() {
+    const codigo = document.getElementById('codigoManual').value.trim();
+    if (codigo) procesarCodigoEscaneado(codigo);
+}
+
+function procesarCodigoEscaneado(codigo) {
+    detenerLectorCodigo();
+    mostrarResultadoCodigo('Buscando equipo...', 'info');
+    fetch(`/api/equipos/buscar-codigo/${encodeURIComponent(codigo.trim())}`)
+        .then(res => res.json().then(data => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok) throw new Error(data.error || 'No se encontró el equipo.');
+            const equipo = data;
+            if (equipo.categoria !== '{{ categoria }}') {
+                throw new Error(`El equipo pertenece a la categoría ${equipo.categoria}.`);
+            }
+            bootstrap.Modal.getInstance(document.getElementById('modalLectorCodigo'))?.hide();
+            const texto = `${equipo.codigo} - ${equipo.descripcion}`;
+            if (equipo.estado === 'EN ALMACEN') {
+                abrirModalPrestamo(equipo.id, texto);
+            } else {
+                abrirModalDevolucion(equipo.prestamo_id, texto);
+            }
+        })
+        .catch(error => mostrarResultadoCodigo(error.message, 'danger'));
+}
+
+document.getElementById('modalLectorCodigo').addEventListener('hidden.bs.modal', detenerLectorCodigo);
+
 function abrirModalPrestamo(id, texto) {
     document.getElementById('prestamo_equipo_id').value = id;
     document.getElementById('prestamo_equipo_texto').value = texto;

@@ -22,12 +22,61 @@
         background-color: #2c3e50 !important;
         color: #ffc107 !important;
     }
+    .periodo-tareas {
+        border: 0;
+        color: #17324d;
+        background: #f8fafc;
+        border-bottom: 4px solid #cbd5e1;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .periodo-tareas:hover, .periodo-tareas.active {
+        color: #fff;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 16px rgba(15, 23, 42, 0.18);
+    }
+    .periodo-hoy.active, .periodo-hoy:hover { background: #dc3545; border-bottom-color: #991b1b; }
+    .periodo-semana.active, .periodo-semana:hover { background: #0d6efd; border-bottom-color: #084298; }
+    .periodo-mes.active, .periodo-mes:hover { background: #198754; border-bottom-color: #0f5132; }
+    .agenda-tarea {
+        border: 0;
+        border-left: 5px solid #0d6efd;
+        overflow: hidden;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .agenda-tarea:hover { transform: translateY(-4px); box-shadow: 0 10px 22px rgba(15, 23, 42, 0.16) !important; }
+    .agenda-tarea.prioridad-alta { border-left-color: #dc3545; }
+    .agenda-tarea.prioridad-media { border-left-color: #f59e0b; }
+    .agenda-tarea.prioridad-baja { border-left-color: #198754; }
+    .resumen-filtro {
+        display: block;
+        color: inherit;
+        text-decoration: none;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    }
+    .resumen-filtro:hover, .resumen-filtro.activo {
+        color: #fff;
+        transform: translateY(-4px);
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.2) !important;
+    }
+    .resumen-filtro:hover h6, .resumen-filtro:hover h3,
+    .resumen-filtro.activo h6, .resumen-filtro.activo h3 { color: #fff !important; }
+    .resumen-pendientes:hover, .resumen-pendientes.activo { background: #dc3545 !important; }
+    .resumen-progreso:hover, .resumen-progreso.activo { background: #e0a800 !important; }
+    .resumen-completadas:hover, .resumen-completadas.activo { background: #198754 !important; }
+    .resumen-total:hover, .resumen-total.activo { background: #0d6efd !important; }
 </style>
+
+<!-- Breadcrumb -->
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Bitácora de Actividades TI</span>
+</nav>
 
 <!-- Resumen Estadístico -->
 <div class="row g-3 mb-4 no-print">
     <div class="col-md-3">
-        <div class="card shadow-sm border-0 bg-white">
+        <a href="{{ url_for('ver_actividades', estado='PENDIENTE', categoria=filtro_cat, periodo=filtro_periodo) }}" class="card resumen-filtro resumen-pendientes shadow-sm border-0 bg-white h-100 {% if filtro_estado == 'PENDIENTE' %}activo{% endif %}" aria-label="Mostrar tareas pendientes">
             <div class="card-body d-flex align-items-center">
                 <div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3 text-danger fs-3">
                     <i class="bi bi-exclamation-circle-fill"></i>
@@ -37,10 +86,10 @@
                     <h3 class="fw-bold mb-0 text-danger">{{ total_pendientes }}</h3>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card shadow-sm border-0 bg-white">
+        <a href="{{ url_for('ver_actividades', estado='EN PROGRESO', categoria=filtro_cat, periodo=filtro_periodo) }}" class="card resumen-filtro resumen-progreso shadow-sm border-0 bg-white h-100 {% if filtro_estado == 'EN PROGRESO' %}activo{% endif %}" aria-label="Mostrar tareas en progreso">
             <div class="card-body d-flex align-items-center">
                 <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3 text-warning fs-3">
                     <i class="bi bi-clock-history"></i>
@@ -50,10 +99,10 @@
                     <h3 class="fw-bold mb-0 text-warning">{{ total_proceso }}</h3>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card shadow-sm border-0 bg-white">
+        <a href="{{ url_for('ver_actividades', estado='COMPLETADA', categoria=filtro_cat, periodo=filtro_periodo) }}" class="card resumen-filtro resumen-completadas shadow-sm border-0 bg-white h-100 {% if filtro_estado == 'COMPLETADA' %}activo{% endif %}" aria-label="Mostrar tareas completadas">
             <div class="card-body d-flex align-items-center">
                 <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3 text-success fs-3">
                     <i class="bi bi-check-circle-fill"></i>
@@ -63,10 +112,10 @@
                     <h3 class="fw-bold mb-0 text-success">{{ total_completadas }}</h3>
                 </div>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-3">
-        <div class="card shadow-sm border-0 bg-white">
+        <a href="{{ url_for('ver_actividades', estado='TODOS', categoria=filtro_cat, periodo=filtro_periodo) }}" class="card resumen-filtro resumen-total shadow-sm border-0 bg-white h-100 {% if filtro_estado == 'TODOS' %}activo{% endif %}" aria-label="Mostrar todas las tareas">
             <div class="card-body d-flex align-items-center">
                 <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3 text-primary fs-3">
                     <i class="bi bi-journal-text"></i>
@@ -76,9 +125,78 @@
                     <h3 class="fw-bold mb-0 text-primary">{{ total_general }}</h3>
                 </div>
             </div>
+        </a>
+    </div>
+</div>
+
+<!-- Acceso rápido por periodo -->
+<div class="card shadow-sm border-0 mb-4 no-print">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div>
+                <h5 class="mb-1 fw-bold"><i class="bi bi-lightning-charge-fill text-warning me-2"></i>Agenda rápida</h5>
+                <small class="text-muted">Enfoca la bitácora en el periodo que necesitas atender.</small>
+            </div>
+            {% if filtro_periodo != 'TODOS' %}
+            <a href="{{ url_for('ver_actividades', estado=filtro_estado, categoria=filtro_cat) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-x-circle me-1"></i> Quitar periodo
+            </a>
+            {% endif %}
+        </div>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <a href="{{ url_for('ver_actividades', periodo='HOY', estado=filtro_estado, categoria=filtro_cat) }}" class="btn periodo-tareas periodo-hoy w-100 py-3 {% if filtro_periodo == 'HOY' %}active{% endif %}">
+                    <i class="bi bi-sun-fill fs-4 d-block mb-1"></i><span class="fw-bold">TAREAS DE HOY</span>
+                </a>
+            </div>
+            <div class="col-md-4">
+                <a href="{{ url_for('ver_actividades', periodo='SEMANA', estado=filtro_estado, categoria=filtro_cat) }}" class="btn periodo-tareas periodo-semana w-100 py-3 {% if filtro_periodo == 'SEMANA' %}active{% endif %}">
+                    <i class="bi bi-calendar-week-fill fs-4 d-block mb-1"></i><span class="fw-bold">TAREAS DE LA SEMANA</span>
+                </a>
+            </div>
+            <div class="col-md-4">
+                <a href="{{ url_for('ver_actividades', periodo='MES', estado=filtro_estado, categoria=filtro_cat) }}" class="btn periodo-tareas periodo-mes w-100 py-3 {% if filtro_periodo == 'MES' %}active{% endif %}">
+                    <i class="bi bi-calendar3-event-fill fs-4 d-block mb-1"></i><span class="fw-bold">TAREAS DEL MES</span>
+                </a>
+            </div>
         </div>
     </div>
 </div>
+
+{% if filtro_periodo != 'TODOS' %}
+<section class="mb-4 no-print" aria-label="Tareas del periodo seleccionado">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-grid-1x2-fill text-primary me-2"></i>Tareas seleccionadas</h5>
+        <span class="badge rounded-pill bg-dark">{{ actividades|length }} tarea(s)</span>
+    </div>
+    <div class="row g-3">
+        {% for a in actividades %}
+        <div class="col-xl-4 col-md-6">
+            <article class="card agenda-tarea prioridad-{{ (a.prioridad or 'BAJA')|lower }} h-100 shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                        <span class="badge bg-secondary">{{ a.categoria }}</span>
+                        {% if a.estado == 'COMPLETADA' %}<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>COMPLETADA</span>
+                        {% elif a.estado == 'EN PROGRESO' %}<span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i>EN PROGRESO</span>
+                        {% else %}<span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>PENDIENTE</span>{% endif %}
+                    </div>
+                    <h6 class="fw-bold text-dark mb-2">{{ a.titulo }}</h6>
+                    <div class="small text-muted mb-2"><i class="bi bi-calendar-event text-primary me-1"></i>{{ a.fecha_programada }} <span class="mx-1">|</span> <i class="bi bi-clock text-primary me-1"></i>{{ a.hora_inicio or '--:--' }} - {{ a.hora_fin or '--:--' }}</div>
+                    <div class="small fw-semibold text-primary mb-2"><i class="bi bi-person-badge me-1"></i>{{ a.area_solicitante or 'UTI' }}</div>
+                    {% if a.descripcion %}<p class="small text-muted mb-3">{{ a.descripcion }}</p>{% endif %}
+                    <div class="mt-auto d-flex justify-content-between align-items-center">
+                        <span class="small fw-bold {% if a.prioridad == 'ALTA' %}text-danger{% elif a.prioridad == 'MEDIA' %}text-warning{% else %}text-success{% endif %}"><i class="bi bi-flag-fill me-1"></i>{{ a.prioridad }}</span>
+                        <a href="{{ a.google_calendar_url }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Añadir a Google Calendar"><i class="bi bi-calendar-plus me-1"></i>Agendar</a>
+                    </div>
+                </div>
+            </article>
+        </div>
+        {% else %}
+        <div class="col-12"><div class="alert alert-light border text-center mb-0"><i class="bi bi-calendar-x me-2"></i>No hay tareas registradas en este periodo.</div></div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 
 <!-- Barra de Acciones y Pestañas -->
 <div class="card shadow-sm border-0 mb-3 bg-white no-print">
@@ -101,6 +219,9 @@
         </ul>
 
         <div class="d-flex flex-wrap gap-2 ms-auto">
+            <button type="button" class="btn btn-primary btn-lg fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalExportarDocx">
+                <i class="bi bi-file-earmark-word-fill me-1"></i> Exportar a Word (.docx)
+            </button>
             <a href="/actividades/exportar-excel" class="btn btn-success btn-lg fw-bold shadow-sm">
                 <i class="bi bi-file-earmark-excel-fill me-1"></i> Exportar Bitácora a Excel
             </a>
@@ -181,13 +302,13 @@
                     <table class="table table-hover align-middle mb-0" id="tablaActividades">
                         <thead class="table-dark">
                             <tr>
-                                <th class="sortable-header" onclick="ordenarColumnaActividades(0)" style="width: 11%;">Fecha / Hora <span id="sortAct0">↕</span></th>
-                                <th class="sortable-header" onclick="ordenarColumnaActividades(1)" style="width: 15%;">Categoría / Área <span id="sortAct1">↕</span></th>
-                                <th class="sortable-header" onclick="ordenarColumnaActividades(2)" style="width: 25%;">Actividad / Requerimiento <span id="sortAct2">↕</span></th>
-                                <th class="sortable-header" onclick="ordenarColumnaActividades(3)" style="width: 10%;">Prioridad <span id="sortAct3">↕</span></th>
-                                <th class="sortable-header" onclick="ordenarColumnaActividades(4)" style="width: 12%;">Estado <span id="sortAct4">↕</span></th>
-                                <th style="width: 14%;">Google Calendar</th>
-                                <th style="width: 13%;" class="text-center">Acciones</th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(0)" style="width: 11%;"><i class="bi bi-calendar3 me-1"></i>Fecha / Hora <span id="sortAct0">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(1)" style="width: 15%;"><i class="bi bi-diagram-3 me-1"></i>Categoría / Área <span id="sortAct1">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(2)" style="width: 25%;"><i class="bi bi-card-text me-1"></i>Actividad / Requerimiento <span id="sortAct2">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(3)" style="width: 10%;"><i class="bi bi-flag me-1"></i>Prioridad <span id="sortAct3">↕</span></th>
+                                <th class="sortable-header" onclick="ordenarColumnaActividades(4)" style="width: 12%;"><i class="bi bi-activity me-1"></i>Estado <span id="sortAct4">↕</span></th>
+                                <th style="width: 14%;"><i class="bi bi-calendar-check me-1"></i>Google Calendar</th>
+                                <th style="width: 13%;" class="text-center"><i class="bi bi-tools me-1"></i>Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="tbodyActividades">
@@ -221,8 +342,8 @@
                                             {{ a.estado }}
                                         </button>
                                         <ul class="dropdown-menu">
-                                            <li><a class="dropdown-item text-danger fw-bold" href="/actividades/estado/{{ a.id }}/PENDIENTE"><i class="bi bi-exclamation-circle me-1"></i> PENDIENTE</a></li>
-                                            <li><a class="dropdown-item text-warning fw-bold" href="/actividades/estado/{{ a.id }}/EN PROGRESO"><i class="bi bi-clock-history me-1"></i> EN PROGRESO</a></li>
+                                            <li><form method="POST" action="/actividades/estado/{{ a.id }}/PENDIENTE" style="margin:0"><button type="submit" class="dropdown-item text-danger fw-bold"><i class="bi bi-exclamation-circle me-1"></i> PENDIENTE</button></form></li>
+                                            <li><form method="POST" action="/actividades/estado/{{ a.id }}/EN PROGRESO" style="margin:0"><button type="submit" class="dropdown-item text-warning fw-bold"><i class="bi bi-clock-history me-1"></i> EN PROGRESO</button></form></li>
                                             <li><button type="button" class="dropdown-item text-success fw-bold btn-completar-actividad"
                                                 data-id="{{ a.id }}" data-titulo="{{ a.titulo }}"><i class="bi bi-check-circle me-1"></i> COMPLETADA</button></li>
                                         </ul>
@@ -304,7 +425,7 @@
                 <input type="hidden" name="actividad_id" id="acciones_actividad_id">
                 <p class="mb-2">Registre lo realizado en la tarea:</p>
                 <div class="alert alert-light border fw-bold" id="acciones_actividad_titulo"></div>
-                <label for="acciones_solucion" class="form-label fw-bold">Detalle de las acciones realizadas *</label>
+                    <label for="acciones_solucion" class="form-label fw-bold"><i class="bi bi-check2-square me-1 text-success"></i>Detalle de las acciones realizadas *</label>
                 <textarea name="solucion_aplicada" id="acciones_solucion" class="form-control" rows="5" required placeholder="Describa la solución, configuración o atención realizada..."></textarea>
             </div>
             <div class="modal-footer">
@@ -325,11 +446,11 @@
             </div>
             <div class="modal-body row g-3">
                 <div class="col-md-8">
-                    <label class="form-label fw-bold">Título de la Actividad / Requerimiento *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-card-heading me-1 text-primary"></i>Título de la Actividad / Requerimiento *</label>
                     <input type="text" name="titulo" class="form-control" required placeholder="Ej: Mantenimiento PC Administración, Configuración de Impresora...">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Categoría TI</label>
+                    <label class="form-label fw-bold"><i class="bi bi-diagram-3 me-1 text-primary"></i>Categoría TI</label>
                     <select name="categoria" class="form-select">
                         <option value="HARDWARE">HARDWARE (Mantenimiento, PCs, Laptops)</option>
                         <option value="SOFTWARE">SOFTWARE (Instalación, Antivirus, SIGA)</option>
@@ -365,7 +486,7 @@
                 </div>
 
                 <div class="col-md-3">
-                    <label class="form-label fw-bold">Prioridad</label>
+                    <label class="form-label fw-bold"><i class="bi bi-flag me-1 text-primary"></i>Prioridad</label>
                     <select name="prioridad" class="form-select">
                         <option value="MEDIA">MEDIA</option>
                         <option value="ALTA">ALTA (Urgente)</option>
@@ -373,7 +494,7 @@
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label fw-bold">Estado Inicial</label>
+                    <label class="form-label fw-bold"><i class="bi bi-activity me-1 text-primary"></i>Estado Inicial</label>
                     <select name="estado" class="form-select">
                         <option value="PENDIENTE">PENDIENTE</option>
                         <option value="EN PROGRESO">EN PROGRESO</option>
@@ -383,7 +504,7 @@
 
                 <!-- FECHA Y HORAS ACTUAL / PROYECTADA -->
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Fecha Programada</label>
+                    <label class="form-label fw-bold"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha Programada</label>
                     <input type="date" name="fecha_programada" class="form-control" value="{{ hoy }}" required>
                 </div>
                 <div class="col-md-4">
@@ -396,7 +517,7 @@
                 </div>
 
                 <div class="col-12">
-                    <label class="form-label">Descripción del Requerimiento</label>
+                    <label class="form-label"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Requerimiento</label>
                     <textarea name="descripcion" class="form-control" rows="2" placeholder="Detalles de la falla, necesidad o tarea a realizar..."></textarea>
                 </div>
             </div>
@@ -420,11 +541,11 @@
                 <input type="hidden" name="actividad_id" id="edit_actividad_id">
                 
                 <div class="col-md-8">
-                    <label class="form-label fw-bold">Título de la Actividad *</label>
+                    <label class="form-label fw-bold"><i class="bi bi-card-heading me-1 text-primary"></i>Título de la Actividad *</label>
                     <input type="text" name="titulo" id="edit_titulo" class="form-control" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Categoría TI</label>
+                    <label class="form-label fw-bold"><i class="bi bi-diagram-3 me-1 text-primary"></i>Categoría TI</label>
                     <select name="categoria" id="edit_categoria" class="form-select">
                         <option value="HARDWARE">HARDWARE</option>
                         <option value="SOFTWARE">SOFTWARE</option>
@@ -436,11 +557,11 @@
                     </select>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label fw-bold text-primary">Área o Persona Solicitante *</label>
+                    <label class="form-label fw-bold text-primary"><i class="bi bi-person-badge me-1"></i>Área o Persona Solicitante *</label>
                     <input type="text" name="area_solicitante" id="edit_area" class="form-control" required>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label fw-bold">Prioridad</label>
+                    <label class="form-label fw-bold"><i class="bi bi-flag me-1 text-primary"></i>Prioridad</label>
                     <select name="prioridad" id="edit_prioridad" class="form-select">
                         <option value="ALTA">ALTA</option>
                         <option value="MEDIA">MEDIA</option>
@@ -448,7 +569,7 @@
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label fw-bold">Estado</label>
+                    <label class="form-label fw-bold"><i class="bi bi-activity me-1 text-primary"></i>Estado</label>
                     <select name="estado" id="edit_estado" class="form-select">
                         <option value="PENDIENTE">PENDIENTE</option>
                         <option value="EN PROGRESO">EN PROGRESO</option>
@@ -456,23 +577,23 @@
                     </select>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Fecha Programada</label>
+                    <label class="form-label fw-bold"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha Programada</label>
                     <input type="date" name="fecha_programada" id="edit_fecha" class="form-control" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Hora Inicio</label>
+                    <label class="form-label fw-bold"><i class="bi bi-clock me-1 text-primary"></i>Hora Inicio</label>
                     <input type="time" name="hora_inicio" id="edit_h_ini" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold">Hora Fin</label>
+                    <label class="form-label fw-bold"><i class="bi bi-clock-history me-1 text-primary"></i>Hora Fin</label>
                     <input type="time" name="hora_fin" id="edit_h_fin" class="form-control">
                 </div>
                 <div class="col-12">
-                    <label class="form-label fw-bold">Descripción del Requerimiento</label>
+                    <label class="form-label fw-bold"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Requerimiento</label>
                     <textarea name="descripcion" id="edit_descripcion" class="form-control" rows="2"></textarea>
                 </div>
                 <div class="col-12">
-                    <label class="form-label fw-bold text-success">Solución Técnica Aplicada / Reporte de Cierre</label>
+                    <label class="form-label fw-bold text-success"><i class="bi bi-check2-square me-1"></i>Solución Técnica Aplicada / Reporte de Cierre</label>
                     <textarea name="solucion_aplicada" id="edit_solucion" class="form-control" rows="2" placeholder="Describa la solución técnica ejecutada..."></textarea>
                 </div>
             </div>
@@ -506,7 +627,66 @@
     </div>
 </div>
 
+<!-- Modal Exportar a Word (.docx) -->
+<div class="modal fade" id="modalExportarDocx" tabindex="-1" aria-labelledby="modalExportarDocxLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form method="POST" action="/actividades/exportar-docx">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold" id="modalExportarDocxLabel">
+                        <i class="bi bi-file-earmark-word-fill me-2"></i>Exportar Actividades a Word (.docx)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Genera un documento Word estructurado con tipografía <strong>Century Gothic</strong>, organizado y agrupado por categorías y fechas, listo para copiar a tu informe mensual.
+                    </p>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small"><i class="bi bi-calendar-range me-1 text-primary"></i>Fecha Desde</label>
+                            <input type="date" class="form-control" name="periodo_desde">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small"><i class="bi bi-calendar-range me-1 text-primary"></i>Fecha Hasta</label>
+                            <input type="date" class="form-control" name="periodo_hasta">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label fw-bold small"><i class="bi bi-tags-fill me-1 text-primary"></i>Filtrar por Categoría</label>
+                            <select class="form-select" name="categoria">
+                                <option value="TODAS">Todas las categorías</option>
+                                <option value="HARDWARE">Hardware / Mantenimiento</option>
+                                <option value="SOFTWARE">Software / Aplicativos</option>
+                                <option value="EQUIPOS MOVILES">Equipos Móviles</option>
+                                <option value="TOKENS">Tokens Digitales</option>
+                                <option value="CAPACITACION">Capacitación y Grabaciones</option>
+                                <option value="TRAMITE UTI">Trámites e Informes UTI</option>
+                            </select>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label fw-bold small"><i class="bi bi-check2-circle me-1 text-primary"></i>Filtrar por Estado</label>
+                            <select class="form-select" name="estado">
+                                <option value="TODOS">Todos los estados</option>
+                                <option value="COMPLETADA" selected>Solo Completadas</option>
+                                <option value="PENDIENTE">Solo Pendientes</option>
+                                <option value="EN PROGRESO">Solo En Progreso</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary fw-bold">
+                        <i class="bi bi-download me-1"></i> Descargar Word (.docx)
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+
 var ordenActividades = {};
 
 // 1. GESTOR SEGURO DE EDICIÓN MEDIANTE EVENT DELEGATION
@@ -622,6 +802,10 @@ function ordenarManualActividades(colIdx, dir) {
     if (rows.length === 0 || rows[0].id === 'filaSinActividades') return;
 
     rows.sort((rowA, rowB) => {
+        const pesoEstado = { 'PENDIENTE': 0, 'EN PROGRESO': 1, 'COMPLETADA': 2 };
+        const estadoA = pesoEstado[rowA.getAttribute('data-estado')] ?? 9;
+        const estadoB = pesoEstado[rowB.getAttribute('data-estado')] ?? 9;
+        if (estadoA !== estadoB) return estadoA - estadoB;
         let cellA = rowA.children[colIdx] ? rowA.children[colIdx].innerText.trim() : '';
         let cellB = rowB.children[colIdx] ? rowB.children[colIdx].innerText.trim() : '';
 
@@ -646,9 +830,13 @@ function ordenarPrioridadActividades() {
     const rows = Array.from(tbody.querySelectorAll('tr'));
     if (rows.length === 0 || rows[0].id === 'filaSinActividades') return;
 
+    const pesoEstado = { 'PENDIENTE': 0, 'EN PROGRESO': 1, 'COMPLETADA': 2 };
     const pesoPrioridad = { 'ALTA': 1, 'MEDIA': 2, 'BAJA': 3 };
 
     rows.sort((rowA, rowB) => {
+        const estadoA = pesoEstado[rowA.getAttribute('data-estado')] ?? 9;
+        const estadoB = pesoEstado[rowB.getAttribute('data-estado')] ?? 9;
+        if (estadoA !== estadoB) return estadoA - estadoB;
         let pA = pesoPrioridad[rowA.getAttribute('data-prioridad')] || 9;
         let pB = pesoPrioridad[rowB.getAttribute('data-prioridad')] || 9;
         return pA - pB;

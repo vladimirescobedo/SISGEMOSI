@@ -1,0 +1,35 @@
+# Exclusiones de indexacion y contexto de Copilot
+venv/
+env/
+.venv/
+.env
+.env/
+*.env
+Lib/site-packages/
+
+# Cache y artefactos compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Bases de datos y respaldos binarios
+*.db
+*.sqlite
+*.sqlite3
+*.zip
+*.rar
+*.7z
+
+# Documentos binarios y archivos generados
+actas_generadas/
+plantillas/*.docx
+uploads/
+uploads_documentos/
+uploads_sgd/
+
+# Registros y temporales
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
