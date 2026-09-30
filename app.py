@@ -3081,11 +3081,9 @@ def exportar_equipos_excel(categoria):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# Inicializar bases de datos al importar (necesario para gunicorn en la nube)
-init_db()
-init_biblioteca_db()
-
 if __name__ == "__main__":
+    init_db()
+    init_biblioteca_db()
     certificado = os.path.join("certificados", "sisgemosi-cert.pem")
     clave = os.path.join("certificados", "sisgemosi-key.pem")
     usar_https = os.getenv("SISGEMOSI_HTTPS", "1").strip().lower() in ("1", "true", "si", "yes")
@@ -3096,5 +3094,4 @@ if __name__ == "__main__":
             raise RuntimeError("Producción requiere un certificado HTTPS real en certificados/.")
         ssl_config = (certificado, clave) if certificados_disponibles else "adhoc"
     host = "127.0.0.1" if PRODUCTION_MODE else "0.0.0.0"
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host=host, port=port, debug=False, ssl_context=ssl_config)
+    app.run(host=host, port=5000, debug=False, ssl_context=ssl_config)
