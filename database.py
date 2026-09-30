@@ -1,3 +1,5 @@
+from werkzeug.security import generate_password_hash
+
 import sqlite3
 
 def get_db():
@@ -39,6 +41,17 @@ def init_db():
         cursor.execute("ALTER TABLE usuarios_sistema ADD COLUMN permisos TEXT NOT NULL DEFAULT '{}'")
     permisos_legacy = '{"personal":["ver","modificar","eliminar","reportar"],"prestamos":["ver","modificar","eliminar","reportar"],"actividades":["ver","modificar","eliminar","reportar"],"documentaria":["ver","modificar","eliminar","reportar"],"sgd":["ver","modificar","eliminar","reportar"],"reportes":["ver","reportar"]}'
     cursor.execute("UPDATE usuarios_sistema SET permisos = ? WHERE permisos IS NULL", (permisos_legacy,))
+
+    # Crear usuario administrador inicial si el sistema está limpio
+    cant_usuarios = cursor.execute("SELECT COUNT(*) FROM usuarios_sistema").fetchone()[0]
+    if cant_usuarios == 0:
+        admin_pass = generate_password_hash("admin123")
+        permisos_admin = '{"personal":["ver","modificar","eliminar","reportar"],"prestamos":["ver","modificar","eliminar","reportar"],"actividades":["ver","modificar","eliminar","reportar"],"documentaria":["ver","modificar","eliminar","reportar"],"sgd":["ver","modificar","eliminar","reportar"],"reportes":["ver","reportar"]}'
+        cursor.execute("""
+            INSERT INTO usuarios_sistema (usuario, password, nombre_completo, rol, permisos)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("admin", admin_pass, "Administrador del Sistema", "ADMIN", permisos_admin))
+        conn.commit()
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS trabajadores (

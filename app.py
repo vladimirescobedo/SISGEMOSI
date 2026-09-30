@@ -46,6 +46,10 @@ app.config.update(
     MAX_CONTENT_LENGTH=32 * 1024 * 1024,
 )
 
+# Inicializar bases de datos y tablas al cargar el módulo (requerido para Gunicorn / producción en la nube)
+init_db()
+init_biblioteca_db()
+
 UPLOAD_FOLDER = "uploads"
 ACTAS_FOLDER = "actas_generadas"
 PLANTILLAS_FOLDER = "plantillas"
