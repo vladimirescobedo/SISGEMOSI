@@ -1,0 +1,48 @@
+# Entorno virtual
+venv/
+__pycache__/
+*.pyc
+
+# Bases de datos
+*.db
+
+# Archivos generados - TODO dentro de estas carpetas excepto .gitkeep
+actas_generadas/
+!actas_generadas/.gitkeep
+
+uploads/*
+!uploads/.gitkeep
+!uploads/contratos/
+!uploads/biblioteca/
+uploads/contratos/*
+!uploads/contratos/.gitkeep
+uploads/biblioteca/*
+!uploads/biblioteca/.gitkeep
+
+uploads_documentos/*
+!uploads_documentos/.gitkeep
+
+uploads_sgd/*
+!uploads_sgd/.gitkeep
+
+# Backups
+backups/
+
+# Logs
+*.log
+
+# Archivos comprimidos
+*.rar
+*.zip
+
+# Certificados locales
+certificados/
+
+# Scripts Windows (no se usan en la nube)
+*.bat
+*.vbs
+.copilotignore
+
+# IDE
+.vscode/
+.gemini/
