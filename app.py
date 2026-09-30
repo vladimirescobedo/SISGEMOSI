@@ -477,8 +477,8 @@ def cambiar_clave():
         flash("La nueva contraseña y la confirmación no coinciden.", "danger")
         return redirect(request.referrer or url_for("inicio"))
 
-    if len(clave_nueva) < 8:
-        flash("La nueva contraseña debe tener al menos 8 caracteres.", "warning")
+    if len(clave_nueva) < 12:
+        flash("La nueva contraseña debe tener al menos 12 caracteres.", "warning")
         return redirect(request.referrer or url_for("inicio"))
 
     conn = get_db()
@@ -577,8 +577,8 @@ def editar_usuario():
     rol_input = request.form.get("rol", "USUARIO").strip().upper()
     permisos = permisos_desde_formulario(request.form)
 
-    if pass_input and len(pass_input) < 8:
-        flash("La nueva contraseña debe tener al menos 8 caracteres.", "warning")
+    if pass_input and len(pass_input) < 12:
+        flash("La nueva contraseña debe tener al menos 12 caracteres.", "warning")
         return redirect(url_for("ver_usuarios"))
 
     conn = get_db()

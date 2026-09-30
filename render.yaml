@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: sisgemosi
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: SISGEMOSI_ENV
+        value: production
+      - key: SISGEMOSI_SECRET_KEY
+        generateValue: true
+      - key: SISGEMOSI_HTTPS
+        value: "0"
+      - key: PYTHON_VERSION
+        value: "3.11.12"
