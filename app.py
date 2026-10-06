@@ -2,11 +2,13 @@ import os
 import json
 import hashlib
 import hmac
+import math
 import re
 import secrets
 import unicodedata
 import urllib.parse
 import urllib.request
+import time
 from xml.sax.saxutils import escape as escape_xml
 from io import BytesIO
 from datetime import datetime, date, timedelta
@@ -26,7 +28,10 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from database import get_db, init_db, get_biblioteca_db, init_biblioteca_db
+from database import (
+    get_db, init_db, get_biblioteca_db, init_biblioteca_db,
+    ensure_apowerrec_schema, normalizar_numero_celular,
+)
 from excel_loader import importar_trabajadores_excel, formatear_solo_fecha
 from equipos_loader import importar_equipos_excel
 from docx_generator import rellenar_plantilla_docx, generar_informe_mensual_docx
@@ -36,19 +41,16 @@ from sgd_processor import procesar_sgd_excel, generar_excel_sgd, aplicar_destina
 app = Flask(__name__)
 PRODUCTION_MODE = os.environ.get("SISGEMOSI_ENV", "development").lower() == "production"
 secret_key = os.environ.get("SISGEMOSI_SECRET_KEY")
+SISGEMOSI_SECRET_KEY_CONFIGURED = bool(secret_key)
 if PRODUCTION_MODE and not secret_key:
     raise RuntimeError("Defina SISGEMOSI_SECRET_KEY antes de iniciar en producción.")
-app.secret_key = secret_key or secrets.token_hex(32)
+app.secret_key = secret_key or "sisgemosi_dev_secret_key_default_2026_fixed"
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=PRODUCTION_MODE,
     MAX_CONTENT_LENGTH=32 * 1024 * 1024,
 )
-
-# Inicializar bases de datos y tablas al cargar el módulo (requerido para Gunicorn / producción en la nube)
-init_db()
-init_biblioteca_db()
 
 UPLOAD_FOLDER = "uploads"
 ACTAS_FOLDER = "actas_generadas"
@@ -57,7 +59,6 @@ SGD_FOLDER = "uploads_sgd"
 DOCUMENTOS_FOLDER = "uploads_documentos"
 CONTRATOS_FOLDER = os.path.join(UPLOAD_FOLDER, "contratos")
 BIBLIOTECA_FOLDER = os.path.join(UPLOAD_FOLDER, "biblioteca")
-
 def guardar_archivo_subido(archivo, carpeta, extensiones_permitidas):
     nombre_original = secure_filename(archivo.filename or "")
     extension = os.path.splitext(nombre_original)[1].lower()
@@ -95,6 +96,86 @@ def generar_credencial_trabajador(nombres, apellido_paterno, apellido_materno):
     materno_limpio = limpio(apellido_materno)
     return f"{nombres_limpios[:1]}{paterno_limpio}{materno_limpio[:1]}"
 
+
+def buscar_trabajador_con_celular(cursor, numero, trabajador_id_excluir=None):
+    celular_normalizado = normalizar_numero_celular(numero)
+    if not celular_normalizado:
+        return None
+
+    consulta = """
+        SELECT id, dni, nombres, apellido_paterno, apellido_materno
+        FROM trabajadores
+        WHERE celular_institucional_normalizado = ?
+    """
+    parametros = [celular_normalizado]
+    if trabajador_id_excluir is not None:
+        consulta += " AND id != ?"
+        parametros.append(trabajador_id_excluir)
+    return cursor.execute(consulta, parametros).fetchone()
+
+
+def celular_ya_registrado_en_otro_equipo(cursor, numero, equipo_id_excluir=None):
+    celular_normalizado = normalizar_numero_celular(numero)
+    if not celular_normalizado:
+        return False
+
+    consulta = "SELECT celular_institucional FROM equipos WHERE categoria = 'MOVILES'"
+    parametros = []
+    if equipo_id_excluir is not None:
+        consulta += " AND id != ?"
+        parametros.append(equipo_id_excluir)
+    return any(
+        normalizar_numero_celular(fila["celular_institucional"]) == celular_normalizado
+        for fila in cursor.execute(consulta, parametros).fetchall()
+    )
+
+
+def normalizar_identificador_equipo(identificador):
+    return re.sub(r"[^A-Z0-9]", "", str(identificador or "").upper())
+
+
+def buscar_movil_con_imei(cursor, imei, equipo_id_excluir=None, codigo=None):
+    imei_normalizado = normalizar_identificador_equipo(imei)
+    codigo_normalizado = normalizar_identificador_equipo(codigo)
+    if not imei_normalizado and not codigo_normalizado:
+        return None
+
+    consulta = """
+        SELECT id, categoria, codigo_margesi, codigo_interno, descripcion,
+               serie_medidas, numero_serie
+        FROM equipos
+    """
+    parametros = []
+    if equipo_id_excluir is not None:
+        consulta += " AND id != ?"
+        parametros.append(equipo_id_excluir)
+
+    for equipo in cursor.execute(consulta, parametros).fetchall():
+        codigos_existentes = {
+            normalizar_identificador_equipo(valor)
+            for valor in (equipo["codigo_margesi"], equipo["codigo_interno"])
+            if normalizar_identificador_equipo(valor)
+        }
+        identificadores_existentes = {
+            normalizar_identificador_equipo(valor)
+            for valor in (
+                equipo["codigo_margesi"],
+                equipo["codigo_interno"],
+                equipo["serie_medidas"],
+                equipo["numero_serie"],
+            )
+            if normalizar_identificador_equipo(valor)
+        }
+        if codigo_normalizado and codigo_normalizado in codigos_existentes:
+            return equipo
+        if equipo["categoria"] == "MOVILES" and (
+            imei_normalizado in identificadores_existentes
+            or codigo_normalizado in identificadores_existentes
+        ):
+            return equipo
+    return None
+
+
 def sanitizar_texto_excel(val):
     """Limpia caracteres no imprimibles, emojis o ilegales para hojas de cálculo Excel (openpyxl)."""
     if val is None:
@@ -119,13 +200,22 @@ def obtener_token_csrf():
 
 @app.before_request
 def proteger_formularios():
-    if request.method != "POST" or request.endpoint in {"static", "login"}:
+    if request.method != "POST" or request.endpoint in {"static", "login", "sincronizar_grabacion_apowerrec"}:
         return None
 
-    token_formulario = request.form.get("csrf_token", "")
+    token_formulario = (
+        request.form.get("csrf_token", "")
+        or request.headers.get("X-CSRFToken", "")
+        or request.headers.get("X-CSRF-Token", "")
+    )
     token_sesion = session.get("csrf_token", "")
     if not token_sesion or not token_formulario or not hmac.compare_digest(token_formulario, token_sesion):
-        return "Solicitud no válida.", 400
+        if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify(error="Solicitud no válida o sesión expirada."), 400
+
+        obtener_token_csrf()
+        flash("La sesión o solicitud de formulario expiró. Por favor vuelva a enviar el formulario.", "warning")
+        return redirect(request.referrer or url_for("inicio"))
     return None
 
 @app.after_request
@@ -1269,6 +1359,203 @@ def callback_drive_oauth():
     flash("Conexión con Google Drive autenticada correctamente.", "success")
     return redirect(url_for("gestion_documentaria"))
 
+@app.route("/api/apowerrec/status", methods=["GET"])
+def estado_sincronizacion_apowerrec():
+    token_configurado = os.getenv("APOWERREC_SYNC_TOKEN", "")
+    token_recibido = request.headers.get("Authorization", "")
+    if not token_configurado:
+        return jsonify(error="La sincronización ApowerREC no está configurada en el servidor."), 503
+    if not hmac.compare_digest(token_recibido, f"Bearer {token_configurado}"):
+        return jsonify(error="No autorizado."), 401
+
+    conn = get_db()
+    try:
+        ensure_apowerrec_schema(conn)
+        tareas = conn.execute("""
+            SELECT id, titulo, estado_iniciado_el
+            FROM actividades_soporte
+            WHERE categoria = 'GRABAR SESION' AND estado = 'EN PROGRESO'
+            ORDER BY id
+        """).fetchall()
+        if len(tareas) != 1:
+            return jsonify(ready=False, tareas_en_progreso=len(tareas))
+        if tareas[0]["estado_iniciado_el"] is None:
+            return jsonify(
+                ready=False,
+                tareas_en_progreso=1,
+                motivo="Vuelva a marcar la actividad GRABAR SESION como EN PROGRESO."
+            )
+        return jsonify(
+            ready=True,
+            actividad_id=tareas[0]["id"],
+            titulo=tareas[0]["titulo"],
+            iniciada_el=tareas[0]["estado_iniciado_el"]
+        )
+    finally:
+        conn.close()
+
+@app.route("/api/apowerrec/recordings", methods=["POST"])
+def sincronizar_grabacion_apowerrec():
+    token_configurado = os.getenv("APOWERREC_SYNC_TOKEN", "")
+    token_recibido = request.headers.get("Authorization", "")
+    if not token_configurado:
+        return jsonify(error="La sincronización ApowerREC no está configurada en el servidor."), 503
+    if not hmac.compare_digest(token_recibido, f"Bearer {token_configurado}"):
+        return jsonify(error="No autorizado."), 401
+
+    datos = request.get_json(silent=True)
+    if not isinstance(datos, dict):
+        return jsonify(error="El cuerpo JSON de la grabación no es válido."), 400
+
+    nombre_archivo = secure_filename(str(datos.get("filename", "")))
+    if not nombre_archivo or os.path.splitext(nombre_archivo)[1].lower() != ".mp4":
+        return jsonify(error="Solo se aceptan grabaciones MP4 con nombre válido."), 400
+
+    hash_declarado = str(datos.get("sha256", "")).lower()
+    if not re.fullmatch(r"[a-f0-9]{64}", hash_declarado):
+        return jsonify(error="Falta una huella SHA-256 válida del video."), 400
+    valor_actividad_id = datos.get("actividad_id")
+    if isinstance(valor_actividad_id, bool) or not isinstance(valor_actividad_id, (int, str)):
+        return jsonify(error="El identificador de actividad no es válido."), 400
+    try:
+        actividad_id_esperada = int(valor_actividad_id)
+    except (TypeError, ValueError):
+        return jsonify(error="El identificador de actividad no es válido."), 400
+    if actividad_id_esperada <= 0:
+        return jsonify(error="El identificador de actividad no es válido."), 400
+
+    drive_file_id = str(datos.get("drive_file_id", "")).strip()
+    drive_url = str(datos.get("drive_url", "")).strip()
+    parsed_drive_url = urllib.parse.urlsplit(drive_url)
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_-]{10,200}", drive_file_id)
+        or parsed_drive_url.scheme != "https"
+        or parsed_drive_url.hostname not in {"drive.google.com", "docs.google.com"}
+        or (
+            drive_file_id not in parsed_drive_url.path
+            and drive_file_id not in urllib.parse.parse_qs(parsed_drive_url.query).get("id", [])
+        )
+    ):
+        return jsonify(error="El identificador o enlace de Google Drive no es válido."), 400
+
+    try:
+        fecha_grabacion = date.fromisoformat(str(datos.get("fecha_grabacion", ""))).isoformat()
+        mtime_archivo = float(datos.get("mtime", ""))
+    except (TypeError, ValueError):
+        return jsonify(error="La fecha o marca de tiempo de la grabación no es válida."), 400
+    if not (mtime_archivo > 0 and math.isfinite(mtime_archivo)):
+        return jsonify(error="La marca de tiempo de la grabación no es válida."), 400
+
+    conn = get_db()
+    biblioteca_conn = None
+    try:
+        ensure_apowerrec_schema(conn)
+        sincronizacion = conn.execute("""
+            SELECT g.*, a.titulo AS nombre_evento, a.estado AS estado_actividad
+            FROM grabaciones_apowerrec g
+            LEFT JOIN actividades_soporte a ON a.id = g.actividad_id
+            WHERE g.sha256 = ?
+        """, (hash_declarado,)).fetchone()
+        if sincronizacion and sincronizacion["estado"] == "SINCRONIZADA":
+            return jsonify(
+                estado="SINCRONIZADA",
+                repetida=True,
+                drive_url=sincronizacion["drive_url"],
+                nombre_evento=sincronizacion["nombre_evento"] or sincronizacion["archivo_nombre"],
+                actividad_completada=sincronizacion["estado_actividad"] == "COMPLETADA"
+            ), 200
+        ahora = time.time()
+        if sincronizacion and sincronizacion["estado"] == "PROCESANDO" and ahora - sincronizacion["actualizado_el"] < 1800:
+            return jsonify(error="Este video ya está siendo procesado; se reintentará automáticamente."), 409
+
+        tareas_en_progreso = conn.execute("""
+            SELECT id, titulo, solucion_aplicada, estado_iniciado_el
+            FROM actividades_soporte
+            WHERE categoria = 'GRABAR SESION' AND estado = 'EN PROGRESO'
+            ORDER BY id
+        """).fetchall()
+        if len(tareas_en_progreso) != 1:
+            return jsonify(error="Debe existir exactamente una actividad GRABAR SESION en progreso para vincular el video."), 409
+
+        tarea = tareas_en_progreso[0]
+        if tarea["id"] != actividad_id_esperada:
+            return jsonify(error="La actividad en progreso cambió durante la transferencia; el video no se asociará a otra tarea."), 409
+        if tarea["estado_iniciado_el"] is None or mtime_archivo < float(tarea["estado_iniciado_el"]) - 2:
+            return jsonify(error="El video debe haberse grabado después de iniciar la actividad GRABAR SESION."), 409
+
+        if sincronizacion:
+            conn.execute("""
+                UPDATE grabaciones_apowerrec
+                SET archivo_nombre = ?, actividad_id = ?, fecha_grabacion = ?,
+                    estado = 'PROCESANDO', error = NULL, actualizado_el = ?
+                WHERE sha256 = ?
+            """, (nombre_archivo, tarea["id"], fecha_grabacion, ahora, hash_declarado))
+        else:
+            conn.execute("""
+                INSERT INTO grabaciones_apowerrec
+                    (sha256, archivo_nombre, actividad_id, fecha_grabacion, estado, actualizado_el)
+                VALUES (?, ?, ?, ?, 'PROCESANDO', ?)
+            """, (hash_declarado, nombre_archivo, tarea["id"], fecha_grabacion, ahora))
+        conn.commit()
+
+        observaciones = f"Grabación ApowerREC sincronizada automáticamente desde la actividad TI #{tarea['id']}."
+        biblioteca_conn = get_biblioteca_db()
+        registro = biblioteca_conn.execute(
+            "SELECT id FROM biblioteca_pae WHERE link = ?", (drive_url,)
+        ).fetchone()
+        if registro:
+            biblioteca_id = registro["id"]
+        else:
+            cursor_biblioteca = biblioteca_conn.execute("""
+                INSERT INTO biblioteca_pae (fecha_publicacion, nombre_evento, link, observaciones)
+                VALUES (?, ?, ?, ?)
+            """, (fecha_grabacion, tarea["titulo"], drive_url, observaciones))
+            biblioteca_id = cursor_biblioteca.lastrowid
+        biblioteca_conn.commit()
+
+        solucion_actualizada = (
+            f"{tarea['solucion_aplicada'].strip()}\n{observaciones} {drive_url}"
+            if (tarea["solucion_aplicada"] or "").strip()
+            else f"{observaciones} {drive_url}"
+        )
+        cursor_actividad = conn.execute("""
+            UPDATE actividades_soporte
+            SET estado = 'COMPLETADA', estado_iniciado_el = NULL, solucion_aplicada = ?
+            WHERE id = ? AND estado = 'EN PROGRESO' AND estado_iniciado_el = ?
+        """, (solucion_actualizada, tarea["id"], tarea["estado_iniciado_el"]))
+        actividad_completada = cursor_actividad.rowcount == 1
+        conn.execute("""
+            UPDATE grabaciones_apowerrec
+            SET estado = 'SINCRONIZADA', drive_file_id = ?, drive_url = ?,
+                biblioteca_id = ?, error = NULL, actualizado_el = ?
+            WHERE sha256 = ?
+        """, (drive_file_id, drive_url, biblioteca_id, time.time(), hash_declarado))
+        conn.commit()
+        return jsonify(
+            estado="SINCRONIZADA",
+            repetida=False,
+            drive_url=drive_url,
+            nombre_evento=tarea["titulo"],
+            actividad_completada=actividad_completada,
+            advertencia=None if actividad_completada else "El video quedó en Drive y en Biblioteca PAE, pero la actividad cambió de estado durante la carga."
+        ), 200
+    except Exception:
+        app.logger.exception("Falló la sincronización de una grabación ApowerREC.")
+        try:
+            conn.execute("""
+                UPDATE grabaciones_apowerrec
+                SET estado = 'ERROR', error = 'Revise el registro del servidor.', actualizado_el = ?
+                WHERE sha256 = ?
+            """, (time.time(), hash_declarado))
+            conn.commit()
+        except Exception:
+            app.logger.exception("No se pudo guardar el estado de error de la grabación ApowerREC.")
+        return jsonify(error="No se pudo completar la sincronización. Revise el registro del servidor; el archivo se podrá reintentar."), 502
+    finally:
+        if biblioteca_conn:
+            biblioteca_conn.close()
+        conn.close()
+
 
 @app.route("/gestion-documentaria/exportar-pdf")
 @permiso_requerido("documentaria", "reportar")
@@ -1435,9 +1722,10 @@ def guardar_documento_drive():
                     scopes=cred_data.get("scopes")
                 )
                 service = build("drive", "v3", credentials=credentials, cache_discovery=False)
-                file_metadata = {"name": nombre_archivo, "description": f"Documento cargado desde SISGEMOSI: {titulo}"}
-                media = MediaIoBaseUpload(BytesIO(archivo.read()), mimetype=archivo.mimetype or "application/octet-stream", resumable=True)
-                uploaded = service.files().create(body=file_metadata, media_body=media, fields="id,webViewLink,webContentLink").execute()
+                file_metadata = {"name": archivo_nombre, "description": f"Documento cargado desde SISGEMOSI: {titulo}"}
+                with open(archivo_ruta, "rb") as contenido:
+                    media = MediaIoBaseUpload(contenido, mimetype=archivo.mimetype or "application/octet-stream", resumable=True)
+                    uploaded = service.files().create(body=file_metadata, media_body=media, fields="id,webViewLink,webContentLink").execute()
                 drive_url = uploaded.get("webViewLink") or uploaded.get("webContentLink") or ""
                 drive_file_id = uploaded.get("id")
             except Exception as exc:
@@ -1545,7 +1833,9 @@ def ver_actividades():
     filtro_estado = request.args.get("estado", "TODOS")
     filtro_cat = request.args.get("categoria", "TODAS")
     filtro_periodo = request.args.get("periodo", "TODOS")
+    actividad_nueva_id = request.args.get("nueva", type=int)
     conn = get_db()
+    ensure_apowerrec_schema(conn)
     cursor = conn.cursor()
 
     propietario_sql, propietario_params = filtro_propietario()
@@ -1601,6 +1891,13 @@ def ver_actividades():
         WHERE activo = 1
         ORDER BY nombres ASC
     """).fetchall()
+    actividades_vencidas = cursor.execute(f"""
+        SELECT * FROM actividades_soporte
+        WHERE {propietario_sql}
+          AND fecha_programada < ?
+          AND estado IN ('PENDIENTE', 'EN PROGRESO')
+        ORDER BY fecha_programada ASC, hora_inicio ASC, id ASC
+    """, (*propietario_params, hoy_dt.isoformat())).fetchall()
 
     total_pendientes = cursor.execute(f"SELECT COUNT(*) FROM actividades_soporte WHERE estado = 'PENDIENTE' AND {propietario_sql}", propietario_params).fetchone()[0]
     total_proceso = cursor.execute(f"SELECT COUNT(*) FROM actividades_soporte WHERE estado = 'EN PROGRESO' AND {propietario_sql}", propietario_params).fetchone()[0]
@@ -1614,10 +1911,12 @@ def ver_actividades():
 
     return render_template("actividades.html",
                            actividades=actividades,
+                           actividades_vencidas=actividades_vencidas,
                            trabajadores=trabajadores,
                            filtro_estado=filtro_estado,
                            filtro_cat=filtro_cat,
                            filtro_periodo=filtro_periodo,
+                           actividad_nueva_id=actividad_nueva_id,
                            total_pendientes=total_pendientes,
                            total_proceso=total_proceso,
                            total_completadas=total_completadas,
@@ -1646,15 +1945,21 @@ def nueva_actividad():
         h_fin = (datetime.now() + timedelta(hours=1)).strftime("%H:%M")
 
     conn = get_db()
-    conn.cursor().execute("""
-        INSERT INTO actividades_soporte (titulo, descripcion, categoria, area_solicitante, prioridad, estado, fecha_programada, hora_inicio, hora_fin, usuario_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (titulo, descripcion, categoria, area, prioridad, estado, fecha_prog, h_inicio, h_fin, session.get("usuario_id")))
+    cursor = conn.cursor()
+    estado_iniciado_el = time.time() if estado == "EN PROGRESO" else None
+    cursor.execute("""
+        INSERT INTO actividades_soporte (
+            titulo, descripcion, categoria, area_solicitante, prioridad, estado,
+            fecha_programada, hora_inicio, hora_fin, usuario_id, estado_iniciado_el
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (titulo, descripcion, categoria, area, prioridad, estado, fecha_prog, h_inicio, h_fin,
+          session.get("usuario_id"), estado_iniciado_el))
+    actividad_id = cursor.lastrowid
     conn.commit()
     conn.close()
 
     flash("Actividad registrada exitosamente.", "success")
-    return redirect(url_for("ver_actividades"))
+    return redirect(url_for("ver_actividades", estado="TODOS", nueva=actividad_id))
 
 @app.route("/actividades/editar", methods=["POST"])
 @permiso_requerido("actividades", "modificar")
@@ -1677,9 +1982,15 @@ def editar_actividad():
     conn.cursor().execute(f"""
         UPDATE actividades_soporte 
         SET titulo = ?, descripcion = ?, categoria = ?, area_solicitante = ?, prioridad = ?,
-            estado = ?, fecha_programada = ?, hora_inicio = ?, hora_fin = ?, solucion_aplicada = ?
+            estado = ?, fecha_programada = ?, hora_inicio = ?, hora_fin = ?, solucion_aplicada = ?,
+            estado_iniciado_el = CASE
+                WHEN estado = 'EN PROGRESO' AND estado_iniciado_el IS NOT NULL THEN estado_iniciado_el
+                WHEN ? = 'EN PROGRESO' THEN ?
+                ELSE NULL
+            END
         WHERE id = ? AND {propietario_sql}
-    """, (titulo, descripcion, categoria, area, prioridad, estado, fecha_prog, h_inicio, h_fin, solucion, actividad_id, *propietario_params))
+    """, (titulo, descripcion, categoria, area, prioridad, estado, fecha_prog, h_inicio, h_fin,
+          solucion, estado, time.time(), actividad_id, *propietario_params))
     conn.commit()
     conn.close()
 
@@ -1693,7 +2004,19 @@ def cambiar_estado_actividad(actividad_id, nuevo_estado):
     if nuevo_estado in ["PENDIENTE", "EN PROGRESO", "COMPLETADA"]:
         conn = get_db()
         propietario_sql, propietario_params = filtro_propietario()
-        conn.cursor().execute(f"UPDATE actividades_soporte SET estado = ? WHERE id = ? AND {propietario_sql}", (nuevo_estado, actividad_id, *propietario_params))
+        conn.cursor().execute(f"""
+            UPDATE actividades_soporte
+            SET estado = ?,
+                estado_iniciado_el = CASE
+                    WHEN ? = 'EN PROGRESO' THEN
+                        CASE
+                            WHEN estado = 'EN PROGRESO' AND estado_iniciado_el IS NOT NULL THEN estado_iniciado_el
+                            ELSE ?
+                        END
+                    ELSE NULL
+                END
+            WHERE id = ? AND {propietario_sql}
+        """, (nuevo_estado, nuevo_estado, time.time(), actividad_id, *propietario_params))
         conn.commit()
         conn.close()
         flash(f"Estado de la actividad cambiado a {nuevo_estado}.", "info")
@@ -1714,7 +2037,7 @@ def guardar_acciones_realizadas():
     propietario_sql, propietario_params = filtro_propietario()
     conn.cursor().execute(f"""
         UPDATE actividades_soporte
-        SET estado = 'COMPLETADA', solucion_aplicada = ?
+        SET estado = 'COMPLETADA', solucion_aplicada = ?, estado_iniciado_el = NULL
         WHERE id = ? AND {propietario_sql}
     """, (acciones, actividad_id, *propietario_params))
     conn.commit()
@@ -1938,10 +2261,12 @@ def ver_submodulo(categoria):
         p.id AS prestamo_id,
         p.fecha_prestamo,
         p.archivo_acta_entrega,
+        t.id AS trabajador_id,
         t.dni AS trabajador_dni,
         (t.nombres || ' ' || t.apellido_paterno || ' ' || t.apellido_materno) AS trabajador_nombre,
         t.cargo AS trabajador_cargo,
-        t.telefono AS trabajador_telefono
+        t.telefono AS trabajador_telefono,
+        t.celular_institucional AS trabajador_celular_institucional
     FROM equipos e
     LEFT JOIN prestamos p ON e.id = p.equipo_id AND p.estado = 'ACTIVO'
     LEFT JOIN trabajadores t ON p.trabajador_id = t.id
@@ -2089,9 +2414,35 @@ def registrar_equipo():
     cod = request.form["codigo_margesi"].strip()
     desc = request.form["descripcion"].strip()
     serie = request.form.get("serie_medidas", "").strip()
+    celular_institucional = request.form.get("celular_institucional", "").strip()
 
     conn = get_db()
-    conn.cursor().execute("""
+    cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
+    equipo_con_imei = (
+        buscar_movil_con_imei(cursor, serie, codigo=cod)
+        if cat == "MOVILES" else None
+    )
+    if equipo_con_imei:
+        codigo_existente = (
+            equipo_con_imei["codigo_margesi"]
+            or equipo_con_imei["codigo_interno"]
+            or equipo_con_imei["id"]
+        )
+        conn.close()
+        flash(
+            f"El IMEI, serie o código {serie or cod} ya existe en la base de datos "
+            f"(equipo {codigo_existente}). No se registró el móvil.",
+            "danger",
+        )
+        return redirect(f"/prestamos/{cat.lower()}")
+
+    if cat == "MOVILES" and celular_ya_registrado_en_otro_equipo(cursor, celular_institucional):
+        conn.close()
+        flash("Ese número celular ya está registrado en otro equipo móvil.", "danger")
+        return redirect(f"/prestamos/{cat.lower()}")
+
+    cursor.execute("""
         INSERT INTO equipos (codigo_margesi, codigo_interno, categoria, tipo_equipo, descripcion, 
                              marca, modelo, serie_medidas, numero_serie,
                              estado_conservacion, color, sede, valor_inicial, valor_neto,
@@ -2113,7 +2464,7 @@ def registrar_equipo():
         request.form.get("valor_inicial", "").strip(),
         request.form.get("valor_neto", "").strip(),
         request.form.get("observaciones", "").strip(),
-        request.form.get("celular_institucional", "").strip()
+        celular_institucional
     ))
     conn.commit()
     conn.close()
@@ -2135,6 +2486,54 @@ def editar_equipo():
 
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
+    equipo_actual = cursor.execute("""
+        SELECT e.categoria, e.celular_institucional, p.trabajador_id
+        FROM equipos e
+        LEFT JOIN prestamos p ON p.equipo_id = e.id AND p.estado = 'ACTIVO'
+        WHERE e.id = ?
+    """, (equipo_id,)).fetchone()
+    celular_institucional = request.form.get("celular_institucional", "").strip()
+    if equipo_actual and equipo_actual["categoria"] == "MOVILES":
+        equipo_con_imei = buscar_movil_con_imei(cursor, serie, equipo_id, codigo=cod)
+        if equipo_con_imei:
+            codigo_existente = (
+                equipo_con_imei["codigo_margesi"]
+                or equipo_con_imei["codigo_interno"]
+                or equipo_con_imei["id"]
+            )
+            conn.close()
+            flash(
+                f"El IMEI, serie o código {serie or cod} ya existe en la base de datos "
+                f"(equipo {codigo_existente}). No se registraron los cambios.",
+                "danger",
+            )
+            return redirect(f"/prestamos/{cat.lower()}")
+
+    if cat == "MOVILES" and celular_ya_registrado_en_otro_equipo(
+        cursor, celular_institucional, equipo_id
+    ):
+        conn.close()
+        flash("Ese número celular ya está registrado en otro equipo móvil.", "danger")
+        return redirect(f"/prestamos/{cat.lower()}")
+    if equipo_actual and equipo_actual["categoria"] == "MOVILES" and equipo_actual["trabajador_id"]:
+        trabajador_con_celular = buscar_trabajador_con_celular(
+            cursor, celular_institucional, equipo_actual["trabajador_id"]
+        )
+        if trabajador_con_celular:
+            nombre = " ".join((
+                trabajador_con_celular["nombres"],
+                trabajador_con_celular["apellido_paterno"],
+                trabajador_con_celular["apellido_materno"],
+            )).strip()
+            conn.close()
+            flash(
+                f"El número celular ya está asignado al trabajador {nombre} "
+                f"(DNI {trabajador_con_celular['dni']}).",
+                "danger",
+            )
+            return redirect(f"/prestamos/{cat.lower()}")
+
     cursor.execute("""
         UPDATE equipos 
         SET codigo_margesi = ?, codigo_interno = ?, descripcion = ?, tipo_equipo = ?,
@@ -2150,8 +2549,18 @@ def editar_equipo():
           request.form.get("color", "").strip(),
           request.form.get("sede", "ABANCAY").strip(),
           request.form.get("observaciones", "").strip(),
-          request.form.get("celular_institucional", "").strip(),
+          celular_institucional,
           equipo_id))
+    if equipo_actual and equipo_actual["categoria"] == "MOVILES" and equipo_actual["trabajador_id"]:
+        cursor.execute("""
+            UPDATE trabajadores
+            SET celular_institucional = ?, celular_institucional_normalizado = ?
+            WHERE id = ?
+        """, (
+            celular_institucional,
+            normalizar_numero_celular(celular_institucional),
+            equipo_actual["trabajador_id"],
+        ))
     conn.commit()
     conn.close()
     flash("Datos del bien actualizados correctamente.", "success")
@@ -2205,6 +2614,7 @@ def prestar_equipo():
 
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
 
     eq = cursor.execute("SELECT * FROM equipos WHERE id = ?", (equipo_id,)).fetchone()
     tr = cursor.execute("SELECT * FROM trabajadores WHERE id = ?", (trabajador_id,)).fetchone()
@@ -2218,6 +2628,25 @@ def prestar_equipo():
         conn.close()
         flash("El bien seleccionado ya no está disponible en almacén.", "warning")
         return redirect(request.referrer or url_for("prestamos_hub"))
+
+    celular_equipo = (eq["celular_institucional"] or "").strip()
+    if eq["categoria"] == "MOVILES" and celular_equipo:
+        trabajador_con_celular = buscar_trabajador_con_celular(
+            cursor, celular_equipo, trabajador_id
+        )
+        if trabajador_con_celular:
+            nombre = " ".join((
+                trabajador_con_celular["nombres"],
+                trabajador_con_celular["apellido_paterno"],
+                trabajador_con_celular["apellido_materno"],
+            )).strip()
+            conn.close()
+            flash(
+                f"El celular {celular_equipo} ya está registrado para {nombre} "
+                f"(DNI {trabajador_con_celular['dni']}).",
+                "danger",
+            )
+            return redirect(request.referrer or url_for("prestamos_hub"))
 
     fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
     cod_mostrar = eq["codigo_margesi"] or eq["codigo_interno"] or "EQ"
@@ -2277,11 +2706,12 @@ def prestar_equipo():
     """, (equipo_id, trabajador_id, observaciones, nombre_archivo))
 
     cursor.execute("UPDATE equipos SET estado = 'EN PRESTAMO' WHERE id = ?", (equipo_id,))
-    if eq["categoria"] == "MOVILES" and (eq["celular_institucional"] or "").strip():
-        cursor.execute(
-            "UPDATE trabajadores SET celular_institucional = ? WHERE id = ?",
-            (eq["celular_institucional"].strip(), trabajador_id)
-        )
+    if eq["categoria"] == "MOVILES" and celular_equipo:
+        cursor.execute("""
+            UPDATE trabajadores
+            SET celular_institucional = ?, celular_institucional_normalizado = ?
+            WHERE id = ?
+        """, (celular_equipo, normalizar_numero_celular(celular_equipo), trabajador_id))
     conn.commit()
     conn.close()
 
@@ -2376,10 +2806,22 @@ def ver_trabajadores():
     contratos_por_trabajador = {}
     for contrato in contratos:
         contratos_por_trabajador.setdefault(contrato["trabajador_id"], {})[contrato["tipo_documento"]] = contrato
+    bienes_asignados = cursor.execute("""
+         SELECT p.trabajador_id, e.codigo_margesi, e.categoria, e.descripcion,
+             e.marca, e.modelo, e.numero_serie, e.celular_institucional
+        FROM prestamos p
+        JOIN equipos e ON e.id = p.equipo_id
+        WHERE p.estado = 'ACTIVO'
+        ORDER BY e.categoria, e.codigo_margesi
+    """).fetchall()
+    bienes_activos_por_trabajador = {}
+    for bien in bienes_asignados:
+        bienes_activos_por_trabajador.setdefault(bien["trabajador_id"], []).append(dict(bien))
     conn.close()
     return render_template("trabajadores.html", trabajadores=trabajadores,
                            trabajadores_antiguos=trabajadores_antiguos,
-                           contratos_por_trabajador=contratos_por_trabajador)
+                           contratos_por_trabajador=contratos_por_trabajador,
+                           bienes_activos_por_trabajador=bienes_activos_por_trabajador)
 
 @app.route("/trabajadores/nuevo", methods=["POST"])
 @permiso_requerido("personal", "modificar")
@@ -2399,30 +2841,53 @@ def registrar_trabajador():
 
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
     try:
         existente = cursor.execute("SELECT id FROM trabajadores WHERE dni = ?", (dni,)).fetchone()
+        trabajador_con_celular = buscar_trabajador_con_celular(
+            cursor,
+            celular_institucional,
+            existente["id"] if existente else None,
+        )
+        if trabajador_con_celular:
+            nombre = " ".join((
+                trabajador_con_celular["nombres"],
+                trabajador_con_celular["apellido_paterno"],
+                trabajador_con_celular["apellido_materno"],
+            )).strip()
+            flash(
+                f"El celular {celular_institucional} ya está registrado para {nombre} "
+                f"(DNI {trabajador_con_celular['dni']}).",
+                "danger",
+            )
+            return redirect(request.referrer or url_for("ver_trabajadores"))
+
+        celular_normalizado = normalizar_numero_celular(celular_institucional)
         datos = (nombres, apellido_paterno, apellido_materno, cargo, correo_personal,
                  correo_institucional, tipo_contrato, telefono, celular_institucional,
-                 fecha_nacimiento)
+                 fecha_nacimiento, celular_normalizado)
         if existente:
             cursor.execute("""
                 UPDATE trabajadores
                 SET nombres = ?, apellido_paterno = ?, apellido_materno = ?, cargo = ?,
                     correo_personal = ?, correo_institucional = ?, tipo_contrato = ?, telefono = ?,
-                    celular_institucional = ?, fecha_nacimiento = ?, activo = 1
+                    celular_institucional = ?, fecha_nacimiento = ?, activo = 1,
+                    celular_institucional_normalizado = ?
                 WHERE id = ?
             """, datos + (existente["id"],))
         else:
             cursor.execute("""
                 INSERT INTO trabajadores (dni, nombres, apellido_paterno, apellido_materno, cargo,
                                           correo_personal, correo_institucional, tipo_contrato, telefono,
-                                          celular_institucional, fecha_nacimiento, activo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                                          celular_institucional, fecha_nacimiento, activo,
+                                          celular_institucional_normalizado)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
             """, (dni,) + datos)
         conn.commit()
         flash(f"Trabajador {nombres} {apellido_paterno} registrado o reactivado correctamente.", "success")
     except Exception:
-        flash(f"Error: El DNI {dni} ya se encuentra registrado.", "danger")
+        conn.rollback()
+        flash(f"No se pudo guardar al trabajador. Verifique si el DNI {dni} ya está registrado.", "danger")
     finally:
         conn.close()
 
@@ -2447,19 +2912,40 @@ def editar_trabajador():
 
     conn = get_db()
     cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
+    trabajador_con_celular = buscar_trabajador_con_celular(
+        cursor, celular_institucional, trabajador_id
+    )
+    if trabajador_con_celular:
+        nombre = " ".join((
+            trabajador_con_celular["nombres"],
+            trabajador_con_celular["apellido_paterno"],
+            trabajador_con_celular["apellido_materno"],
+        )).strip()
+        conn.close()
+        flash(
+            f"El celular {celular_institucional} ya está registrado para {nombre} "
+            f"(DNI {trabajador_con_celular['dni']}).",
+            "danger",
+        )
+        return redirect(url_for("ver_trabajadores"))
+
     try:
         cursor.execute("""
             UPDATE trabajadores 
             SET dni = ?, nombres = ?, apellido_paterno = ?, apellido_materno = ?, cargo = ?,
                                 correo_personal = ?, correo_institucional = ?, tipo_contrato = ?, telefono = ?,
-                                celular_institucional = ?, fecha_nacimiento = ?
+                                celular_institucional = ?, fecha_nacimiento = ?,
+                                celular_institucional_normalizado = ?
             WHERE id = ?
                 """, (dni, nombres, apellido_paterno, apellido_materno, cargo, correo_personal,
                             correo_institucional, tipo_contrato, telefono, celular_institucional,
-                            fecha_nacimiento, trabajador_id))
+                            fecha_nacimiento, normalizar_numero_celular(celular_institucional),
+                            trabajador_id))
         conn.commit()
         flash(f"Datos de {nombres} {apellido_paterno} actualizados correctamente.", "success")
     except Exception:
+        conn.rollback()
         flash(f"Error al actualizar: Verifique que el DNI no esté duplicado.", "danger")
     finally:
         conn.close()
@@ -2474,12 +2960,31 @@ def eliminar_trabajador(trabajador_id):
     cursor = conn.cursor()
 
     prestamos_activos = cursor.execute("""
-        SELECT COUNT(*) FROM prestamos 
-        WHERE trabajador_id = ? AND estado = 'ACTIVO'
-    """, (trabajador_id,)).fetchone()[0]
+         SELECT e.codigo_margesi, e.categoria, e.descripcion, e.marca, e.modelo,
+             e.numero_serie, e.celular_institucional
+        FROM prestamos p
+        JOIN equipos e ON e.id = p.equipo_id
+        WHERE p.trabajador_id = ? AND p.estado = 'ACTIVO'
+        ORDER BY e.categoria, e.codigo_margesi
+    """, (trabajador_id,)).fetchall()
 
-    if prestamos_activos > 0:
-        flash("No se puede eliminar al trabajador porque tiene equipos actualmente en préstamo.", "danger")
+    if prestamos_activos:
+        bienes_pendientes = []
+        nombres_categoria = {
+            "MOVILES": "Celulares y equipos móviles",
+            "TOKENS": "Tokens y firmas digitales",
+            "INFORMATICOS": "Equipos informáticos",
+            "MOBILIARIO": "Mobiliario institucional",
+        }
+        for bien in prestamos_activos:
+            detalle = " - ".join(str(valor) for valor in (
+                nombres_categoria.get(bien["categoria"], bien["categoria"]),
+                bien["codigo_margesi"], bien["descripcion"], bien["marca"],
+                bien["modelo"], bien["numero_serie"],
+                f"Línea: {bien['celular_institucional']}" if bien["celular_institucional"] else None
+            ) if valor)
+            bienes_pendientes.append(detalle or "Bien institucional sin descripción")
+        flash("No se puede desactivar al trabajador. Registre la devolución de estos bienes: " + "; ".join(bienes_pendientes), "warning")
     else:
         cursor.execute("UPDATE trabajadores SET activo = 0 WHERE id = ?", (trabajador_id,))
         conn.commit()
@@ -2696,6 +3201,7 @@ def subir_excel():
             nuevos = resultado.get("nuevos", 0)
             actualizados = resultado.get("actualizados", 0)
             diferencias = resultado.get("mismatches", [])
+            celulares_duplicados = resultado.get("celulares_duplicados", [])
             mensaje = f"Se procesaron {total} trabajadores ({nuevos} nuevos, {actualizados} actualizados)."
             if diferencias:
                 detalle = "; ".join(
@@ -2706,6 +3212,14 @@ def subir_excel():
                 flash(f"{mensaje} Hay diferencias en: {detalle}", "warning")
             else:
                 flash(mensaje, "success")
+            if celulares_duplicados:
+                detalle = "; ".join(
+                    f"DNI {fila['dni']} omitido (celular ya registrado para DNI {fila['dni_existente']})"
+                    for fila in celulares_duplicados[:3]
+                )
+                if len(celulares_duplicados) > 3:
+                    detalle += f" ... y {len(celulares_duplicados) - 3} más"
+                flash(f"No se importaron números celulares duplicados: {detalle}.", "warning")
         else:
             flash(f"Se importaron / actualizaron {resultado} trabajadores exitosamente.", "success")
     else:
@@ -2725,6 +3239,7 @@ def subir_excel_trabajadores():
             nuevos = resultado.get("nuevos", 0)
             actualizados = resultado.get("actualizados", 0)
             diferencias = resultado.get("mismatches", [])
+            celulares_duplicados = resultado.get("celulares_duplicados", [])
             mensaje = f"Se procesaron {total} trabajadores ({nuevos} nuevos, {actualizados} actualizados)."
             if diferencias:
                 detalle = "; ".join(
@@ -2735,6 +3250,14 @@ def subir_excel_trabajadores():
                 flash(f"{mensaje} Diferencias detectadas: {detalle}", "warning")
             else:
                 flash(mensaje, "success")
+            if celulares_duplicados:
+                detalle = "; ".join(
+                    f"DNI {fila['dni']} omitido (celular ya registrado para DNI {fila['dni_existente']})"
+                    for fila in celulares_duplicados[:3]
+                )
+                if len(celulares_duplicados) > 3:
+                    detalle += f" ... y {len(celulares_duplicados) - 3} más"
+                flash(f"No se importaron números celulares duplicados: {detalle}.", "warning")
         else:
             flash(f"Se importaron / actualizaron {resultado} trabajadores exitosamente.", "success")
     else:

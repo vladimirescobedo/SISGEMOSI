@@ -11,6 +11,12 @@
     {% endfor %}
   {% endif %}
 {% endwith %}
+{% if actividad_nueva_id %}
+<div class="alert alert-success d-flex flex-wrap align-items-center justify-content-between gap-2 shadow-sm" role="status">
+    <div><i class="bi bi-check-circle-fill me-2"></i>La actividad se guardó. Está en <strong>Lista de Actividades (Tasks)</strong>; la fila aparecerá resaltada.</div>
+    <a class="btn btn-sm btn-success flex-shrink-0" href="#actividad-{{ actividad_nueva_id }}"><i class="bi bi-geo-alt-fill me-1"></i>Ir a la tarea</a>
+</div>
+{% endif %}
 
 <style>
     th.sortable-header {
@@ -64,6 +70,17 @@
     .resumen-progreso:hover, .resumen-progreso.activo { background: #e0a800 !important; }
     .resumen-completadas:hover, .resumen-completadas.activo { background: #198754 !important; }
     .resumen-total:hover, .resumen-total.activo { background: #0d6efd !important; }
+    @keyframes parpadeo-tarea-nueva {
+        0%, 100% { background-color: transparent; }
+        25% { background-color: #f8d7da; }
+        75% { background-color: #fff3cd; }
+    }
+    .actividad-nueva-destacada > * {
+        animation: parpadeo-tarea-nueva 0.5s ease-in-out 6;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .actividad-nueva-destacada > * { animation: none; }
+    }
 </style>
 
 <!-- Breadcrumb -->
@@ -72,6 +89,49 @@
     <span class="mx-2 text-muted">/</span>
     <span class="text-muted fw-bold">Bitácora de Actividades TI</span>
 </nav>
+
+<section class="card border-0 border-start border-5 border-danger shadow-sm mb-4" aria-labelledby="tareasNoRealizadasTitulo">
+    <div class="card-header bg-danger text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="mb-0 fw-bold" id="tareasNoRealizadasTitulo"><i class="bi bi-exclamation-triangle-fill me-2"></i>TAREAS NO REALIZADAS</h5>
+        <span class="badge bg-white text-danger">{{ actividades_vencidas|length }} vencida(s)</span>
+    </div>
+    {% if actividades_vencidas %}
+    <div class="list-group list-group-flush">
+        {% for tarea in actividades_vencidas %}
+        <div class="list-group-item py-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                        <strong>{{ tarea['titulo'] }}</strong>
+                        <span class="badge bg-secondary">{{ tarea['categoria'] }}</span>
+                        {% if tarea['estado'] == 'EN PROGRESO' %}
+                        <span class="badge bg-warning text-dark">EN PROGRESO</span>
+                        {% else %}
+                        <span class="badge bg-danger">PENDIENTE</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-muted">
+                        <i class="bi bi-calendar-event me-1"></i>Fecha programada: {{ tarea['fecha_programada'] }}
+                        <span class="mx-1">|</span>{{ tarea['area_solicitante'] or 'UTI' }}
+                    </div>
+                    {% if tarea['descripcion'] %}<div class="small mt-1">{{ tarea['descripcion'] }}</div>{% endif %}
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <form method="POST" action="/actividades/estado/{{ tarea['id'] }}/EN PROGRESO">
+                        <button type="submit" class="btn btn-sm btn-outline-warning fw-bold"><i class="bi bi-clock-history me-1"></i>Marcar en proceso</button>
+                    </form>
+                    <form method="POST" action="/actividades/estado/{{ tarea['id'] }}/PENDIENTE">
+                        <button type="submit" class="btn btn-sm btn-outline-danger fw-bold"><i class="bi bi-exclamation-circle me-1"></i>No se completó</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card-body text-muted"><i class="bi bi-check-circle text-success me-2"></i>No hay actividades vencidas pendientes de revisión.</div>
+    {% endif %}
+</section>
 
 <!-- Resumen Estadístico -->
 <div class="row g-3 mb-4 no-print">
@@ -255,6 +315,7 @@
                             <option value="TOKENS">TOKENS Y FIRMAS DIGITALES</option>
                             <option value="EQUIPOS MOVILES">EQUIPOS MÓVILES</option>
                             <option value="CAPACITACION">ASISTENCIA TÉCNICA</option>
+                            <option value="GRABAR SESION">GRABAR SESIÓN</option>
                             <option value="TRAMITE UTI">GESTIÓN DOCUMENTARIA</option>
                         </select>
                     </div>
@@ -313,7 +374,7 @@
                         </thead>
                         <tbody id="tbodyActividades">
                             {% for a in actividades %}
-                            <tr data-prioridad="{{ a.prioridad }}" data-estado="{{ a.estado }}">
+                            <tr id="actividad-{{ a.id }}" data-prioridad="{{ a.prioridad }}" data-estado="{{ a.estado }}">
                                 <td>
                                     <div class="fw-bold text-dark">{{ a.fecha_programada }}</div>
                                     <small class="text-muted"><i class="bi bi-clock me-1"></i>{{ a.hora_inicio or '--:--' }} a {{ a.hora_fin or '--:--' }}</small>
@@ -417,6 +478,7 @@
 <div class="modal fade" id="modalAccionesRealizadas" tabindex="-1">
     <div class="modal-dialog">
         <form action="/actividades/acciones-realizadas" method="POST" class="modal-content">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title fw-bold"><i class="bi bi-clipboard-check me-2"></i>ACCIONES REALIZADAS</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -440,6 +502,7 @@
 <div class="modal fade" id="modalNuevaActividad" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <form action="/actividades/nueva" method="POST" class="modal-content">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title fw-bold"><i class="bi bi-calendar-plus me-2"></i>Registrar Actividad / Tarea de Soporte TI</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -458,6 +521,7 @@
                         <option value="TOKENS">TOKENS Y FIRMAS DIGITALES</option>
                         <option value="EQUIPOS MOVILES">EQUIPOS MÓVILES (Celulares, Chips)</option>
                         <option value="CAPACITACION">ASISTENCIA TÉCNICA / USUARIOS</option>
+                        <option value="GRABAR SESION">GRABAR SESIÓN</option>
                         <option value="TRAMITE UTI">GESTIÓN DOCUMENTARIA / UTI</option>
                     </select>
                 </div>
@@ -533,6 +597,7 @@
 <div class="modal fade" id="modalEditarActividad" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <form action="/actividades/editar" method="POST" class="modal-content">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-header bg-warning">
                 <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Actualizar Actividad de Soporte</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -553,6 +618,7 @@
                         <option value="TOKENS">TOKENS Y FIRMAS DIGITALES</option>
                         <option value="EQUIPOS MOVILES">EQUIPOS MÓVILES</option>
                         <option value="CAPACITACION">ASISTENCIA TÉCNICA</option>
+                        <option value="GRABAR SESION">GRABAR SESIÓN</option>
                         <option value="TRAMITE UTI">GESTIÓN DOCUMENTARIA</option>
                     </select>
                 </div>
@@ -609,6 +675,7 @@
 <div class="modal fade" id="modalEliminarActividad" tabindex="-1">
     <div class="modal-dialog">
         <form id="formEliminarActividad" method="POST" class="modal-content">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title fw-bold"><i class="bi bi-trash-fill me-2"></i>Eliminar Actividad</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -660,6 +727,7 @@
                                 <option value="EQUIPOS MOVILES">Equipos Móviles</option>
                                 <option value="TOKENS">Tokens Digitales</option>
                                 <option value="CAPACITACION">Capacitación y Grabaciones</option>
+                                <option value="GRABAR SESION">Grabación de Sesiones</option>
                                 <option value="TRAMITE UTI">Trámites e Informes UTI</option>
                             </select>
                         </div>
@@ -854,6 +922,15 @@ function abrirModalEliminarActividad(id, titulo) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    const nuevaActividadId = {{ actividad_nueva_id|tojson }};
+    const nuevaActividad = nuevaActividadId ? document.getElementById(`actividad-${nuevaActividadId}`) : null;
+    if (nuevaActividad) {
+        nuevaActividad.classList.add('actividad-nueva-destacada');
+        nuevaActividad.setAttribute('tabindex', '-1');
+        nuevaActividad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        nuevaActividad.focus({ preventScroll: true });
+    }
+
     var calendarEl = document.getElementById('calendar');
     var calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
