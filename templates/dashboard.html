@@ -263,7 +263,7 @@
             <div class="modal-body row g-3">
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-person-vcard me-1 text-primary"></i>DNI *</label>
-                    <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" maxlength="15">
+                    <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" title="Ingrese exactamente 8 números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 8)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Nombres *</label>
@@ -287,7 +287,7 @@
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-telephone me-1 text-primary"></i>Número de Teléfono</label>
-                    <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456">
+                    <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-envelope-at me-1 text-primary"></i>Correo Institucional</label>

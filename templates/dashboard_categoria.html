@@ -131,14 +131,14 @@
                             <th><i class="bi bi-phone me-1"></i>Celular Institucional</th>
                             <th><i class="bi bi-heart-pulse me-1"></i>Estado Físico</th>
                             <th><i class="bi bi-clipboard-check me-1"></i>Control</th>
-                            <th><i class="bi bi-person-badge me-1"></i>Custodio Actual</th>
+                            <th><i class="bi bi-person-badge me-1"></i>Identificador interno / Custodio</th>
                             <th><i class="bi bi-calendar-event me-1"></i>Fecha Salida</th>
                             <th style="width: 140px;"><i class="bi bi-tools me-1"></i>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for eq in equipos %}
-                        <tr data-estado="{{ eq.estado }}" data-tipo="{{ eq.descripcion or eq.tipo_equipo }}">
+                        <tr data-estado="{{ eq.estado }}" data-tipo="{{ eq.descripcion or eq.tipo_equipo }}" data-dni="{{ eq.trabajador_dni or '' }}">
                             <td class="text-center fw-bold text-secondary">
                                 {{ eq.codigo_margesi or eq.codigo_interno }}
                             </td>
@@ -170,7 +170,7 @@
                             <td>
                                 {% if eq.estado == 'EN PRESTAMO' %}
                                     <strong>{{ eq.trabajador_nombre }}</strong><br>
-                                    <small class="text-muted">DNI: {{ eq.trabajador_dni }} | {{ eq.trabajador_cargo }}</small>
+                                    <small class="text-muted">{{ eq.trabajador_cargo }}</small>
                                 {% else %}
                                     <span class="text-muted fst-italic">En Almacén</span>
                                 {% endif %}
@@ -315,7 +315,8 @@
                 <input type="hidden" name="categoria" value="{{ categoria }}">
                 <div class="mb-3">
                     <label class="form-label fw-bold"><i class="bi bi-upc-scan me-1 text-primary"></i>Código Margesí / Interno *</label>
-                    <input type="text" name="codigo_margesi" class="form-control" required>
+                    <input type="text" name="codigo_margesi" id="nuevo_codigo_margesi" class="form-control" autocomplete="off" required>
+                    <div id="nuevo_codigo_margesi_estado" class="form-text" aria-live="polite"></div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label fw-bold"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Bien *</label>
@@ -337,7 +338,8 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
-                    <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777">
+                    <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
+                    <div class="form-text">No se permiten números repetidos. Al asignar el móvil, el número se sincroniza con Personal.</div>
                 </div>
                 <div class="row g-2 mb-3">
                     <div class="col-6">
@@ -402,7 +404,8 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
-                    <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control" placeholder="Ej: 999888777">
+                    <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control" placeholder="Ej: 999888777" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
+                    <div class="form-text">El número se sincroniza con Personal para el trabajador custodio actual.</div>
                 </div>
                 <div class="row g-2 mb-3">
                     <div class="col-6">
@@ -564,6 +567,65 @@ function abrirModalEditar(id, codigo, descripcion, marca, modelo, serie, celular
     new bootstrap.Modal(document.getElementById('modalEditarEquipo')).show();
 }
 
+const formularioNuevoEquipo = document.querySelector('#modalNuevoEquipo form');
+const campoCodigoNuevo = document.getElementById('nuevo_codigo_margesi');
+const estadoCodigoNuevo = document.getElementById('nuevo_codigo_margesi_estado');
+let solicitudCodigoNuevo = 0;
+let codigoNuevoDuplicado = false;
+let codigoNuevoVerificando = false;
+
+campoCodigoNuevo.addEventListener('input', async () => {
+    const codigo = campoCodigoNuevo.value.trim();
+    const solicitud = ++solicitudCodigoNuevo;
+    codigoNuevoDuplicado = false;
+    campoCodigoNuevo.setCustomValidity('');
+    campoCodigoNuevo.classList.remove('is-invalid', 'is-valid');
+    estadoCodigoNuevo.className = 'form-text';
+    estadoCodigoNuevo.textContent = '';
+
+    if (!codigo) {
+        codigoNuevoVerificando = false;
+        return;
+    }
+
+    codigoNuevoVerificando = true;
+    estadoCodigoNuevo.textContent = 'Verificando código...';
+    try {
+        const respuesta = await fetch(`/api/equipos/verificar-codigo?codigo=${encodeURIComponent(codigo)}`);
+        if (!respuesta.ok) throw new Error('No se pudo verificar el código.');
+        const datos = await respuesta.json();
+        if (solicitud !== solicitudCodigoNuevo) return;
+
+        codigoNuevoDuplicado = datos.existe;
+        codigoNuevoVerificando = false;
+        if (datos.existe) {
+            const mensaje = `Este código ya está registrado (${datos.codigo}). No se puede registrar nuevamente.`;
+            campoCodigoNuevo.setCustomValidity(mensaje);
+            campoCodigoNuevo.classList.add('is-invalid');
+            estadoCodigoNuevo.className = 'invalid-feedback d-block';
+            estadoCodigoNuevo.textContent = mensaje;
+        } else {
+            campoCodigoNuevo.classList.add('is-valid');
+            estadoCodigoNuevo.className = 'form-text text-success';
+            estadoCodigoNuevo.textContent = 'Código disponible.';
+        }
+    } catch (error) {
+        if (solicitud !== solicitudCodigoNuevo) return;
+        codigoNuevoVerificando = false;
+        campoCodigoNuevo.setCustomValidity('No se pudo verificar el código. Intente nuevamente.');
+        campoCodigoNuevo.classList.add('is-invalid');
+        estadoCodigoNuevo.className = 'invalid-feedback d-block';
+        estadoCodigoNuevo.textContent = error.message;
+    }
+});
+
+formularioNuevoEquipo.addEventListener('submit', event => {
+    if (codigoNuevoDuplicado || codigoNuevoVerificando || !campoCodigoNuevo.checkValidity()) {
+        event.preventDefault();
+        campoCodigoNuevo.reportValidity();
+    }
+});
+
 function verHistorial(id) {
     const modal = new bootstrap.Modal(document.getElementById('modalHistorial'));
     modal.show();
@@ -618,7 +680,7 @@ function aplicarFiltros() {
     const filas = document.querySelectorAll('#tablaInventario tbody tr');
 
     filas.forEach(fila => {
-        const textoFila = fila.innerText.toLowerCase();
+        const textoFila = `${fila.innerText} ${fila.dataset.dni || ''}`.toLowerCase();
         const filaEstado = fila.getAttribute('data-estado');
         const filaTipo = fila.getAttribute('data-tipo');
 

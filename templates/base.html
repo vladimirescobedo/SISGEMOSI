@@ -47,8 +47,14 @@
                     {% if usuario_tiene_permiso('prestamos', 'ver') %}<a class="btn btn-primary btn-sm nav-link-custom px-3" href="/prestamos" data-bs-toggle="tooltip" title="Gestión de préstamos de bienes">
                         <i class="bi bi-laptop me-1"></i> Préstamos
                     </a>{% endif %}
+                    {% if usuario_tiene_permiso('tokens', 'ver') %}<a class="btn btn-outline-info btn-sm nav-link-custom px-3 fw-bold" href="/tokens" data-bs-toggle="tooltip" title="Certificados y tokens digitales">
+                        <i class="bi bi-key-fill me-1"></i> Gestión de Tokens
+                    </a>{% endif %}
                     {% if usuario_tiene_permiso('personal', 'ver') %}<a class="btn btn-info btn-sm nav-link-custom text-dark px-3 fw-bold" href="/trabajadores" data-bs-toggle="tooltip" title="Padrón de personal">
                         <i class="bi bi-people-fill me-1"></i> Personal
+                    </a>{% endif %}
+                    {% if usuario_tiene_permiso('cargos_asignaciones', 'ver') %}<a class="btn btn-outline-light btn-sm nav-link-custom px-3 fw-bold" href="/cargos-asignaciones" data-bs-toggle="tooltip" title="Perfiles y accesos requeridos por cargo">
+                        <i class="bi bi-person-lock me-1"></i> Cargos y Sistemas Asignados
                     </a>{% endif %}
                     {% if usuario_tiene_permiso('actividades', 'ver') %}<a class="btn btn-warning btn-sm nav-link-custom text-dark px-3 fw-bold" href="/actividades" data-bs-toggle="tooltip" title="Bitácora de soporte TI">
                         <i class="bi bi-calendar-check-fill me-1"></i> Actividades TI

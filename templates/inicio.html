@@ -146,6 +146,23 @@
         </a>
     </div>{% endif %}
 
+    {% if usuario_tiene_permiso('cargos_asignaciones', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/cargos-asignaciones" class="card card-modulo modulo-primary h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-primary bg-opacity-10 text-primary">
+                        <i class="bi bi-person-lock"></i>
+                    </div>
+                    <h5 class="fw-bold text-primary mb-2">CARGOS Y SISTEMAS ASIGNADOS</h5>
+                    <p class="text-muted small">Matriz de accesos requeridos y reporte de sistemas por trabajador.</p>
+                </div>
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>{% endif %}
+
     <!-- 3. SISTEMA DE REGISTRO DE ACTIVIDADES (SOPORTE TI) -->
     {% if usuario_tiene_permiso('actividades', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
         <a href="/actividades" class="card card-modulo modulo-warning h-100 border-0 shadow text-center p-3 bg-white text-dark">
@@ -162,6 +179,27 @@
                 <div class="mt-3 pt-2 border-top d-flex justify-content-around">
                     <span class="badge bg-warning text-dark">{{ tareas_pendientes }} Pendientes</span>
                     <span class="badge bg-primary">{{ tareas_hoy }} Hoy</span>
+                </div>
+                <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
+                    Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>
+                </div>
+            </div>
+        </a>
+    </div>{% endif %}
+
+    {% if usuario_tiene_permiso('tokens', 'ver') %}<div class="col-xl-2 col-lg-4 col-md-6">
+        <a href="/tokens" class="card card-modulo modulo-info h-100 border-0 shadow text-center p-3 bg-white text-dark">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="icono-modulo bg-info bg-opacity-10 text-info">
+                        <i class="bi bi-key-fill"></i>
+                    </div>
+                    <h5 class="fw-bold text-info mb-2">GESTIÓN DE TOKENS</h5>
+                    <p class="text-muted small">Control de certificados digitales, participantes externos y fechas de vigencia.</p>
+                </div>
+                <div class="mt-3 pt-2 border-top d-flex justify-content-around">
+                    <span class="badge bg-info text-dark">{{ tokens_vigentes }} Vigentes hoy</span>
+                    <span class="badge bg-danger">{{ tokens_por_vencer }} Alertas</span>
                 </div>
                 <div class="btn-ingresar-modulo btn-sm mt-3 fw-bold py-2 shadow-sm">
                     Ingresar <i class="bi bi-arrow-right-circle ms-1"></i>

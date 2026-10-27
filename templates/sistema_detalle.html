@@ -1,0 +1,584 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    .ut-sys-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.25rem;
+        padding: 1.5rem;
+    }
+    .ut-sys-header-info {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+    }
+    .ut-sys-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 76px;
+        height: 76px;
+        border-radius: 1.2rem;
+        font-size: 2.3rem;
+        color: #fff;
+        flex-shrink: 0;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, .14);
+    }
+    .ut-apk-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 1.35rem;
+    }
+    .ut-apk-card {
+        border: 2px solid #cbd5e1;
+        border-radius: 1.15rem;
+        padding: 1.25rem;
+        background: #ffffff;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 270px;
+        transition: all .22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ut-apk-card:hover {
+        border-color: #16a34a;
+        box-shadow: 0 12px 28px rgba(22, 163, 74, .18);
+        transform: translateY(-4px);
+    }
+    .ut-apk-card:hover .ut-apk-icon {
+        transform: scale(1.08);
+    }
+    .ut-apk-card-body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: .5rem 0;
+    }
+    .ut-apk-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 70px;
+        height: 70px;
+        border-radius: 1.1rem;
+        font-size: 2.1rem;
+        color: #fff;
+        margin-bottom: .85rem;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, .14);
+        transition: transform .22s ease;
+    }
+    .ut-apk-title {
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: #1e40af;
+        text-align: center;
+        line-height: 1.25;
+        margin-bottom: .35rem;
+    }
+    .ut-apk-desc {
+        font-size: .82rem;
+        color: #64748b;
+        text-align: center;
+        line-height: 1.35;
+    }
+    .ut-mod-item {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: .6rem;
+        margin-left: calc(var(--tree-depth) * 1.1rem);
+        padding: .65rem .5rem;
+        border-bottom: 1px solid #edf0f2;
+        border-radius: .4rem;
+        transition: background-color .18s ease;
+    }
+    .ut-mod-item:hover { background: #f1f6ff; }
+    .ut-mod-submodule { margin-bottom: .3rem; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; background: #eff6ff; }
+    .ut-mod-item-name, .ut-mod-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    .ut-mod-label { color: #1e3a8a; font-weight: 700; text-transform: uppercase; }
+    .ut-type-badge { display: inline-flex; align-items: center; padding: .24rem .55rem; border: 1px solid #93c5fd; border-radius: .35rem; background: #dbeafe; color: #1e40af; font-size: .72rem; font-weight: 800; letter-spacing: .04em; }
+    .ut-type-modulo { border-color: #1d4ed8; background: #1e40af; color: #fff; }
+    .ut-type-submodulo { border-color: #93c5fd; background: #dbeafe; color: #1e40af; }
+    .ut-type-apk { border-color: #16a34a; background: #dcfce7; color: #15803d; }
+    .ut-type-servicio { border-color: #dc2626; background: #fee2e2; color: #b91c1c; }
+    .ut-tree-guide { width: .8rem; height: 1px; flex: 0 0 .8rem; background: #adb5bd; }
+
+    /* Degradados de fondo para los iconos de cada sistema */
+    .ut-bg-sigo       { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+    .ut-bg-sigdel     { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
+    .ut-bg-sgd        { background: linear-gradient(135deg, #059669, #047857); }
+    .ut-bg-sade       { background: linear-gradient(135deg, #d97706, #b45309); }
+    .ut-bg-correo     { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+    .ut-bg-mesa       { background: linear-gradient(135deg, #0891b2, #0e7490); }
+    .ut-bg-apk        { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .ut-bg-apk-est    { background: linear-gradient(135deg, #4f46e5, #4338ca); }
+    .ut-bg-apk-alm    { background: linear-gradient(135deg, #ea580c, #c2410c); }
+    .ut-bg-apk-iiee   { background: linear-gradient(135deg, #0d9488, #0f766e); }
+    .ut-bg-siga       { background: linear-gradient(135deg, #9333ea, #7e22ce); }
+    .ut-bg-siaf       { background: linear-gradient(135deg, #0284c7, #0369a1); }
+    .ut-bg-default    { background: linear-gradient(135deg, #475569, #334155); }
+
+    @media (max-width: 640px) {
+        .ut-sys-header { flex-direction: column; text-align: center; }
+        .ut-sys-header-info { flex-direction: column; text-align: center; }
+        .ut-apk-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <a href="{{ url_for('cargos_asignaciones_ut', tab='catalogo') }}">Catálogo de Sistemas UTI</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">{{ sistema.nombre }}</span>
+</nav>
+
+<!-- Encabezado Principal del Sistema con Botones de Acción -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="ut-sys-header">
+        <div class="ut-sys-header-info">
+            <div class="ut-sys-icon {{ sistema.icono_bg }}">
+                <i class="bi {{ sistema.icono }}"></i>
+            </div>
+            <div>
+                <h3 class="fw-bold mb-1">{{ sistema.nombre }}</h3>
+                <p class="text-muted mb-1">{{ sistema.descripcion }}</p>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <span class="ut-type-badge ut-type-{{ sistema.tipo|lower }}">{{ sistema.tipo }}</span>
+                    {% if sistema.obligatorio_todos %}
+                    <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Obligatorio para todo el personal</span>
+                    {% endif %}
+                    {% if not sistema.activo %}
+                    <span class="badge bg-secondary">Inactivo</span>
+                    {% endif %}
+                    <span class="badge bg-primary-subtle text-primary">
+                        {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                            {{ total_descendientes }} aplicativo{{ 's' if total_descendientes != 1 else '' }} móvil{{ 'es' if total_descendientes != 1 else '' }}
+                        {% else %}
+                            {{ total_descendientes }} módulo{{ 's' if total_descendientes != 1 else '' }} y submódulo{{ 's' if total_descendientes != 1 else '' }}
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Acciones del Sistema (Modificar, Eliminar, Volver) -->
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a href="{{ url_for('cargos_asignaciones_ut', tab='catalogo') }}" class="btn btn-outline-secondary fw-semibold">
+                <i class="bi bi-arrow-left me-1"></i>Volver al Catálogo
+            </a>
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+            <button type="button" class="btn btn-outline-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#modalEditarSistemaActual">
+                <i class="bi bi-pencil-square me-1"></i>Modificar sistema
+            </button>
+            <form action="{{ url_for('cambiar_estado_modulo_ut', modulo_id=sistema.id) }}" method="POST" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                <button type="submit" class="btn {% if sistema.activo %}btn-outline-secondary{% else %}btn-outline-success{% endif %} fw-semibold">
+                    {% if sistema.activo %}<i class="bi bi-archive me-1"></i>Desactivar{% else %}<i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar{% endif %}
+                </button>
+            </form>
+            <form action="{{ url_for('eliminar_modulo_ut', modulo_id=sistema.id) }}" method="POST" class="d-inline" onsubmit="return confirm('¿Está seguro de eliminar definitivamente el sistema «{{ sistema.nombre }}»? Esta acción eliminará el sistema y sus submódulos.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir" value="catalogo">
+                <button type="submit" class="btn btn-outline-danger fw-semibold">
+                    <i class="bi bi-trash me-1"></i>Eliminar sistema
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Modal Modificar Sistema Actual -->
+{% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+<div class="modal fade" id="modalEditarSistemaActual" tabindex="-1" aria-labelledby="modalEditarSistemaActualLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow border-0">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold" id="modalEditarSistemaActualLabel">
+                    <i class="bi bi-pencil-square me-2"></i>Modificar Sistema: {{ sistema.nombre }}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <form action="{{ url_for('editar_modulo_ut', modulo_id=sistema.id) }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="editNomSisActual">Nombre del sistema</label>
+                        <input type="text" class="form-control" id="editNomSisActual" name="nombre" value="{{ sistema.nombre }}" maxlength="120" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="editTipoSisActual">Tipo</label>
+                        <select class="form-select" id="editTipoSisActual" name="tipo" required>
+                            <option value="SISTEMA" {% if sistema.tipo == 'SISTEMA' %}selected{% endif %}>Sistema principal</option>
+                            <option value="APK" {% if sistema.tipo == 'APK' %}selected{% endif %}>Aplicativo móvil (APK)</option>
+                            <option value="SERVICIO" {% if sistema.tipo == 'SERVICIO' %}selected{% endif %}>Servicio / cuenta</option>
+                            <option value="MODULO" {% if sistema.tipo == 'MODULO' %}selected{% endif %}>Módulo</option>
+                            <option value="SUBMODULO" {% if sistema.tipo == 'SUBMODULO' %}selected{% endif %}>Submódulo</option>
+                        </select>
+                    </div>
+                    <div class="form-check p-3 bg-light rounded border">
+                        <input class="form-check-input" type="checkbox" id="editObligSisActual" name="obligatorio_todos" {% if sistema.obligatorio_todos %}checked{% endif %}>
+                        <label class="form-check-label fw-bold" for="editObligSisActual">
+                            Requerido para todo el personal (institucional obligatorio)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Formulario para Agregar Módulo, Submódulo o APK -->
+{% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+<section class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">
+            {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                <i class="bi bi-phone-fill me-2 text-success"></i>Agregar nuevo aplicativo móvil (APK) a {{ sistema.nombre }}
+            {% else %}
+                <i class="bi bi-plus-circle me-2 text-primary"></i>Agregar módulo o submódulo a {{ sistema.nombre }}
+            {% endif %}
+        </h6>
+    </div>
+    <div class="card-body">
+        <form action="{{ url_for('agregar_modulo_ut') }}" method="POST" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+            <div class="col-lg-4">
+                <label class="form-label fw-semibold text-primary" for="nuevoModuloNombre">
+                    {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                        Nombre del aplicativo móvil
+                    {% else %}
+                        Nombre del módulo o elemento
+                    {% endif %}
+                </label>
+                <input class="form-control" id="nuevoModuloNombre" name="nombre" maxlength="120" placeholder="{% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Ej: APLICATIVO MOVIL: NUEVO APK{% else %}Ej: Facturación y Planillas{% endif %}" required>
+            </div>
+            <div class="col-sm-4 col-lg-2">
+                <label class="form-label fw-semibold text-primary" for="nuevoModuloTipo">Tipo</label>
+                <select class="form-select" id="nuevoModuloTipo" name="tipo" required>
+                    {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                    <option value="APK" selected>APK / aplicativo móvil</option>
+                    <option value="MODULO">Módulo</option>
+                    <option value="SUBMODULO">Submódulo</option>
+                    <option value="SERVICIO">Servicio / cuenta</option>
+                    {% else %}
+                    <option value="MODULO" selected>Módulo</option>
+                    <option value="SUBMODULO">Submódulo</option>
+                    <option value="APK">APK / aplicativo móvil</option>
+                    <option value="SERVICIO">Servicio / cuenta</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div class="col-sm-8 col-lg-3">
+                <label class="form-label fw-semibold text-primary" for="nuevoModuloPadre">Módulo o contenedor padre</label>
+                <select class="form-select" id="nuevoModuloPadre" name="padre_id">
+                    <option value="{{ sistema.id }}">{{ sistema.nombre }} (raíz del sistema)</option>
+                    {% for modulo in modulos_del_sistema %}
+                    <option value="{{ modulo.id }}">{{ modulo.ruta }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-8 col-lg-2">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="moduloObligatorioTodos" name="obligatorio_todos">
+                    <label class="form-check-label fw-semibold text-primary" for="moduloObligatorioTodos">Requerido por todos</label>
+                </div>
+            </div>
+            <div class="col-sm-4 col-lg-1 d-grid">
+                <button class="btn btn-primary fw-bold" type="submit"><i class="bi bi-plus-lg me-1"></i>Añadir</button>
+            </div>
+        </form>
+    </div>
+</section>
+{% endif %}
+
+<!-- Macro para Listar Elementos en Árbol (para sistemas jerárquicos) -->
+{% macro listar_descendientes(items, todos_modulos, depth=1) %}
+    {% for item in items %}
+    <div class="ut-mod-item {% if item.tipo in ['MODULO', 'SUBMODULO'] %}ut-mod-submodule{% endif %}" style="--tree-depth: {{ depth }}">
+        <div class="ut-mod-item-name">
+            <span class="ut-tree-guide" aria-hidden="true"></span>
+            <span class="{% if item.tipo in ['MODULO', 'SUBMODULO'] %}ut-mod-label{% endif %} {% if item.hijos %}fw-semibold{% endif %}">{{ item.nombre }}</span>
+            <span class="ut-type-badge ut-type-{{ item.tipo|lower }}">{{ item.tipo }}</span>
+            {% if not item.activo %}<span class="badge bg-secondary">Inactivo</span>
+            {% elif item.obligatorio_todos %}<span class="badge bg-primary">Obligatorio para todos</span>{% endif %}
+        </div>
+        {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+        <div class="ut-mod-actions">
+            <!-- Botón Modificar que abre Modal -->
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalEditarItem-{{ item.id }}">
+                <i class="bi bi-pencil-square me-1"></i>Modificar
+            </button>
+            <form action="{{ url_for('cambiar_estado_modulo_ut', modulo_id=item.id) }}" method="POST" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                <button type="submit" class="btn btn-sm {% if item.activo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
+                    {% if item.activo %}<i class="bi bi-archive me-1"></i>Desactivar{% else %}<i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar{% endif %}
+                </button>
+            </form>
+            <form action="{{ url_for('eliminar_modulo_ut', modulo_id=item.id) }}" method="POST" class="d-inline" onsubmit="return confirm('¿Está seguro de eliminar definitivamente este elemento?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Eliminar</button>
+            </form>
+        </div>
+
+        <!-- Modal Editar Item -->
+        <div class="modal fade" id="modalEditarItem-{{ item.id }}" tabindex="-1" aria-labelledby="modalEditarItemLabel-{{ item.id }}" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content shadow border-0">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title fw-bold" id="modalEditarItemLabel-{{ item.id }}">
+                            <i class="bi bi-pencil-square me-2"></i>Modificar: {{ item.nombre }}
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <form action="{{ url_for('editar_modulo_ut', modulo_id=item.id) }}" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                        <div class="modal-body p-4">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold" for="editNom-{{ item.id }}">Nombre</label>
+                                <input type="text" class="form-control" id="editNom-{{ item.id }}" name="nombre" value="{{ item.nombre }}" maxlength="120" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold" for="editTipo-{{ item.id }}">Tipo</label>
+                                <select class="form-select" id="editTipo-{{ item.id }}" name="tipo" required>
+                                    {% for tipo, etiqueta in [('MODULO', 'Módulo'), ('SUBMODULO', 'Submódulo'), ('APK', 'APK / aplicativo móvil'), ('SERVICIO', 'Servicio / cuenta')] %}
+                                    <option value="{{ tipo }}" {% if item.tipo == tipo %}selected{% endif %}>{{ etiqueta }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold" for="editPadre-{{ item.id }}">Elemento padre</label>
+                                <select class="form-select" id="editPadre-{{ item.id }}" name="padre_id">
+                                    <option value="{{ sistema.id }}">{{ sistema.nombre }} (raíz del sistema)</option>
+                                    {% for candidato in todos_modulos %}
+                                        {% if candidato.id != item.id and candidato.id != sistema.id %}
+                                        <option value="{{ candidato.id }}" {% if item.padre_id == candidato.id %}selected{% endif %}>{{ candidato.ruta }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-check p-3 bg-light rounded border">
+                                <input class="form-check-input" type="checkbox" id="editOblig-{{ item.id }}" name="obligatorio_todos" {% if item.obligatorio_todos %}checked{% endif %}>
+                                <label class="form-check-label fw-bold" for="editOblig-{{ item.id }}">
+                                    Requerido por todo el personal
+                                </label>
+                            </div>
+                        </div>
+                        <div class="modal-footer bg-light">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% if item.hijos %}{{ listar_descendientes(item.hijos, todos_modulos, depth + 1) }}{% endif %}
+    {% endfor %}
+{% endmacro %}
+
+<!-- Vista Específica según tipo de sistema -->
+{% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+    <!-- Vista Visual en Tarjetas para Aplicativos Móviles (APK) -->
+    <section class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-phone-fill me-2"></i>Aplicativos Móviles Oficiales del PAE</h5>
+            <span class="badge bg-light text-success fw-bold">{{ total_descendientes }} aplicativo(s)</span>
+        </div>
+        <div class="card-body p-4">
+            {% if arbol_hijos %}
+            <div class="ut-apk-grid">
+                {% for apk in arbol_hijos %}
+                <div class="ut-apk-card">
+                    <!-- Fila Superior: Badge APK y Botones Rápidos -->
+                    <div class="d-flex justify-content-between align-items-center w-100 mb-2">
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis fw-bold">APK</span>
+                        {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" data-bs-toggle="modal" data-bs-target="#modalEditarApk-{{ apk.id }}" title="Modificar {{ apk.nombre }}">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            <form action="{{ url_for('eliminar_modulo_ut', modulo_id=apk.id) }}" method="POST" class="d-inline" onsubmit="return confirm('¿Está seguro de eliminar definitivamente el aplicativo «{{ apk.nombre }}»?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Eliminar {{ apk.nombre }}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Centro: Icono, Título y Descripción -->
+                    <div class="ut-apk-card-body">
+                        <div class="ut-apk-icon {{ apk.icono_bg or 'ut-bg-apk' }}">
+                            <i class="bi {{ apk.icono or 'bi-phone-fill' }}"></i>
+                        </div>
+                        <div class="ut-apk-title">{{ apk.nombre }}</div>
+                        <div class="ut-apk-desc">{{ apk.descripcion or 'Aplicativo móvil oficial del PAE' }}</div>
+                    </div>
+
+                    <!-- Fila Inferior: Estados y Acciones -->
+                    <div class="d-flex flex-column gap-2 pt-2 border-top">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                {% if not apk.activo %}
+                                <span class="badge bg-secondary">Inactivo</span>
+                                {% else %}
+                                <span class="badge bg-success-subtle text-success">Activo</span>
+                                {% endif %}
+                                {% if apk.obligatorio_todos %}
+                                <span class="badge bg-primary ms-1">Obligatorio</span>
+                                {% endif %}
+                            </div>
+                            <span class="badge bg-light text-muted border">
+                                <i class="bi bi-folder me-1"></i>Sin submódulos
+                            </span>
+                        </div>
+                        {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                        <div class="d-flex gap-1 w-100">
+                            <button type="button" class="btn btn-outline-primary btn-sm fw-bold flex-grow-1" data-bs-toggle="modal" data-bs-target="#modalEditarApk-{{ apk.id }}">
+                                <i class="bi bi-pencil-square me-1"></i>Modificar
+                            </button>
+                            <form action="{{ url_for('cambiar_estado_modulo_ut', modulo_id=apk.id) }}" method="POST" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                                <button type="submit" class="btn btn-sm {% if apk.activo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}" title="{% if apk.activo %}Desactivar{% else %}Reactivar{% endif %}">
+                                    {% if apk.activo %}<i class="bi bi-archive"></i>{% else %}<i class="bi bi-arrow-counterclockwise"></i>{% endif %}
+                                </button>
+                            </form>
+                            <form action="{{ url_for('eliminar_modulo_ut', modulo_id=apk.id) }}" method="POST" class="d-inline" onsubmit="return confirm('¿Está seguro de eliminar definitivamente el aplicativo «{{ apk.nombre }}»?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                    <!-- Modal Editar APK -->
+                    {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                    <div class="modal fade" id="modalEditarApk-{{ apk.id }}" tabindex="-1" aria-labelledby="modalEditarApkLabel-{{ apk.id }}" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content shadow border-0">
+                                <div class="modal-header bg-primary text-white">
+                                    <h5 class="modal-title fw-bold" id="modalEditarApkLabel-{{ apk.id }}">
+                                        <i class="bi bi-pencil-square me-2"></i>Modificar APK: {{ apk.nombre }}
+                                    </h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                                </div>
+                                <form action="{{ url_for('editar_modulo_ut', modulo_id=apk.id) }}" method="POST">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="redirigir_sistema" value="{{ sistema.id }}">
+                                    <div class="modal-body p-4">
+                                        <div class="mb-3">
+                                            <label class="form-label fw-bold" for="editApkNom-{{ apk.id }}">Nombre del aplicativo móvil</label>
+                                            <input type="text" class="form-control" id="editApkNom-{{ apk.id }}" name="nombre" value="{{ apk.nombre }}" maxlength="120" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-bold" for="editApkTipo-{{ apk.id }}">Tipo</label>
+                                            <select class="form-select" id="editApkTipo-{{ apk.id }}" name="tipo" required>
+                                                <option value="APK" {% if apk.tipo == 'APK' %}selected{% endif %}>APK / aplicativo móvil</option>
+                                                <option value="MODULO" {% if apk.tipo == 'MODULO' %}selected{% endif %}>Módulo</option>
+                                                <option value="SUBMODULO" {% if apk.tipo == 'SUBMODULO' %}selected{% endif %}>Submódulo</option>
+                                                <option value="SERVICIO" {% if apk.tipo == 'SERVICIO' %}selected{% endif %}>Servicio / cuenta</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-bold" for="editApkPadre-{{ apk.id }}">Contenedor / sistema padre</label>
+                                            <select class="form-select" id="editApkPadre-{{ apk.id }}" name="padre_id">
+                                                <option value="{{ sistema.id }}">{{ sistema.nombre }} (raíz del sistema)</option>
+                                                {% for candidato in modulos_del_sistema %}
+                                                    {% if candidato.id != apk.id and candidato.id != sistema.id %}
+                                                    <option value="{{ candidato.id }}" {% if apk.padre_id == candidato.id %}selected{% endif %}>{{ candidato.ruta }}</option>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div class="form-check p-3 bg-light rounded border">
+                                            <input class="form-check-input" type="checkbox" id="editApkOblig-{{ apk.id }}" name="obligatorio_todos" {% if apk.obligatorio_todos %}checked{% endif %}>
+                                            <label class="form-check-label fw-bold" for="editApkOblig-{{ apk.id }}">
+                                                Requerido por todo el personal
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer bg-light">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-phone text-muted" style="font-size: 3rem;"></i>
+                <p class="text-muted mt-3 mb-0">No hay aplicativos móviles registrados en este grupo.</p>
+                {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                <p class="text-muted">Use el formulario superior para agregar un aplicativo móvil.</p>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+{% else %}
+    <!-- Vista en Árbol para Sistemas con Módulos y Submódulos (SIGO, SGD, etc.) -->
+    <section class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-diagram-3-fill me-2"></i>Módulos y submódulos de {{ sistema.nombre }}</h5>
+            <span class="badge bg-light text-primary fw-bold">{{ total_descendientes }} elemento(s)</span>
+        </div>
+        <div class="card-body">
+            {% if arbol_hijos %}
+                {{ listar_descendientes(arbol_hijos, modulos_del_sistema) }}
+            {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-folder2-open text-muted" style="font-size: 3rem;"></i>
+                    <p class="text-muted mt-3 mb-0">Este sistema aún no tiene módulos ni submódulos registrados.</p>
+                    {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                    <p class="text-muted">Use el formulario superior para registrar el primer módulo.</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </section>
+{% endif %}
+
+{% endblock %}

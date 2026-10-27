@@ -86,15 +86,15 @@
             <form action="/gestion-documentaria/generar-informe-docx" method="POST" class="row g-3">
                 <div class="col-md-3">
                     <label class="form-label fw-bold small"><i class="bi bi-hash me-1 text-primary"></i>N° de Carta</label>
-                    <input type="number" class="form-control" name="numero_carta" value="{{ siguiente_carta }}" min="1" required>
+                    <input type="number" class="form-control" name="numero_carta" value="{{ siguiente_carta }}" min="1" max="999999999" step="1" required>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label fw-bold small"><i class="bi bi-hash me-1 text-info"></i>N° de Informe</label>
-                    <input type="number" class="form-control" name="numero_informe" value="{{ siguiente_informe }}" min="1" required>
+                    <input type="number" class="form-control" name="numero_informe" value="{{ siguiente_informe }}" min="1" max="999999999" step="1" required>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label fw-bold small"><i class="bi bi-card-checklist me-1 text-primary"></i>N° Orden de Servicio</label>
-                    <input type="text" class="form-control" name="numero_os" value="0005612" required>
+                    <input type="text" class="form-control" name="numero_os" value="0005612" inputmode="numeric" pattern="[0-9]{1,20}" maxlength="20" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 20)" required>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label fw-bold small"><i class="bi bi-calendar-event me-1 text-primary"></i>Fecha de Emisión</label>

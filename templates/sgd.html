@@ -158,6 +158,20 @@
                 </a>
             </div>
 
+            <form action="/sgd/configurar-antiguedad" method="POST" class="d-flex align-items-end gap-2 flex-wrap">
+                <input type="hidden" name="tipo" value="{{ tipo_activo }}">
+                {% if corte_activo %}<input type="hidden" name="corte_id" value="{{ corte_activo.id }}">{% endif %}
+                <div>
+                    <label for="umbralDiasSgd" class="form-label small fw-bold mb-1">Alertar desde (días)</label>
+                    <input id="umbralDiasSgd" type="number" name="umbral_dias" class="form-control form-control-sm" min="1" max="3650" step="1" value="{{ umbral_dias }}" {% if not puede_modificar_sgd %}disabled{% endif %} required>
+                </div>
+                {% if puede_modificar_sgd %}
+                <button type="submit" class="btn btn-sm btn-outline-primary fw-bold">
+                    <i class="bi bi-check2-circle me-1"></i>Aplicar
+                </button>
+                {% endif %}
+            </form>
+
             <div class="sgd-cta-wrap ms-auto">
                 <button class="sgd-new-corte-btn" type="button" data-bs-toggle="collapse" data-bs-target="#panelSubidaCorte">
                     <i class="bi bi-cloud-arrow-up-fill"></i>
@@ -485,32 +499,28 @@
                     <div class="col-12">
                         <div class="card border-0 border-start border-{% if tipo_activo == 'NO_LEIDOS' %}danger{% else %}warning{% endif %} border-4 shadow-sm p-3">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom pb-2 mb-3">
-                                <h5 class="fw-bold {% if tipo_activo == 'NO_LEIDOS' %}text-danger{% else %}text-warning{% endif %} mb-0"><i class="bi bi-exclamation-octagon-fill me-2"></i>Documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS sin atención" }} con 100 días o más</h5>
-                                {% if resultado.documentos_100_dias is defined %}
+                                <h5 class="fw-bold {% if tipo_activo == 'NO_LEIDOS' %}text-danger{% else %}text-warning{% endif %} mb-0"><i class="bi bi-exclamation-octagon-fill me-2"></i>Documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS sin atención" }} con {{ umbral_dias }} días o más</h5>
+                                {% if resultado.documentos_umbral_dias is defined %}
                                 <div class="d-flex gap-2">
-                                    <span class="badge bg-danger fs-6">{{ resultado.total_documentos_100_dias }} documentos</span>
-                                    <span class="badge bg-dark fs-6">{{ resultado.total_trabajadores_100_dias }} trabajadores</span>
+                                    <span class="badge bg-danger fs-6">{{ resultado.total_documentos_umbral_dias }} documentos</span>
+                                    <span class="badge bg-dark fs-6">{{ resultado.total_trabajadores_umbral_dias }} trabajadores</span>
                                 </div>
-                                {% else %}
-                                <span class="badge bg-secondary">Corte anterior al análisis</span>
                                 {% endif %}
                             </div>
                             <p class="small text-muted mb-3">Permanecen en el reporte {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }} al corte <strong>{{ fecha_corte }}</strong>. La antigüedad se calcula desde la fecha de emisión de este mismo corte.</p>
-                            {% if resultado.documentos_100_dias is not defined %}
-                            <div class="alert alert-warning mb-0"><i class="bi bi-info-circle-fill me-2"></i>Este corte histórico no contiene el análisis de 100 días. La alerta estará disponible al cargar un nuevo corte {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS" }}.</div>
-                            {% elif resultado.documentos_100_dias %}
+                            {% if resultado.documentos_umbral_dias %}
                             <div class="table-responsive">
                                 <table class="table table-sm table-hover align-middle mb-0">
                                     <thead class="table-danger">
                                         <tr>
                                             <th>Trabajador (destinatario)</th>
-                                            <th class="text-center">Documentos ≥ 100 días</th>
+                                            <th class="text-center">Documentos ≥ {{ umbral_dias }} días</th>
                                             <th class="text-center">Fecha de emisión más antigua</th>
                                             <th class="text-center">Antigüedad máxima</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for item in resultado.documentos_100_dias %}
+                                        {% for item in resultado.documentos_umbral_dias %}
                                         <tr>
                                             <td class="fw-bold">{{ item.nombre }}</td>
                                             <td class="text-center"><span class="badge bg-danger">{{ item.cant }}</span></td>
@@ -522,7 +532,7 @@
                                 </table>
                             </div>
                             {% else %}
-                            <div class="alert alert-success mb-0"><i class="bi bi-check-circle-fill me-2"></i>No hay documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS sin atención" }} con antigüedad verificable de 100 días o más en este corte.</div>
+                            <div class="alert alert-success mb-0"><i class="bi bi-check-circle-fill me-2"></i>No hay documentos {{ "NO LEÍDOS" if tipo_activo == "NO_LEIDOS" else "RECIBIDOS sin atención" }} con antigüedad verificable de {{ umbral_dias }} días o más en este corte.</div>
                             {% endif %}
                             {% if resultado.documentos_sin_fecha %}
                             <div class="alert alert-warning small mt-3 mb-0"><i class="bi bi-calendar-x me-1"></i>{{ resultado.documentos_sin_fecha }} documentos no tienen fecha de emisión válida y no se incluyen en el cálculo de antigüedad.</div>

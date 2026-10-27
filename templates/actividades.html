@@ -78,9 +78,21 @@
     .actividad-nueva-destacada > * {
         animation: parpadeo-tarea-nueva 0.5s ease-in-out 6;
     }
-    @media (prefers-reduced-motion: reduce) {
-        .actividad-nueva-destacada > * { animation: none; }
+    @keyframes alerta-actividad {
+        0%, 100% { background-color: #fff; }
+        50% { background-color: #fff3cd; }
     }
+    .actividad-proxima { animation: alerta-actividad 0.8s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+        .actividad-nueva-destacada > *, .actividad-proxima { animation: none; }
+    }
+    .tareas-no-realizadas > summary {
+        cursor: pointer;
+        list-style: none;
+    }
+    .tareas-no-realizadas > summary::-webkit-details-marker { display: none; }
+    .tareas-no-realizadas-chevron { transition: transform 0.2s ease; }
+    .tareas-no-realizadas[open] .tareas-no-realizadas-chevron { transform: rotate(180deg); }
 </style>
 
 <!-- Breadcrumb -->
@@ -90,48 +102,13 @@
     <span class="text-muted fw-bold">Bitácora de Actividades TI</span>
 </nav>
 
-<section class="card border-0 border-start border-5 border-danger shadow-sm mb-4" aria-labelledby="tareasNoRealizadasTitulo">
-    <div class="card-header bg-danger text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h5 class="mb-0 fw-bold" id="tareasNoRealizadasTitulo"><i class="bi bi-exclamation-triangle-fill me-2"></i>TAREAS NO REALIZADAS</h5>
-        <span class="badge bg-white text-danger">{{ actividades_vencidas|length }} vencida(s)</span>
-    </div>
-    {% if actividades_vencidas %}
-    <div class="list-group list-group-flush">
-        {% for tarea in actividades_vencidas %}
-        <div class="list-group-item py-3">
-            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-                <div class="flex-grow-1">
-                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                        <strong>{{ tarea['titulo'] }}</strong>
-                        <span class="badge bg-secondary">{{ tarea['categoria'] }}</span>
-                        {% if tarea['estado'] == 'EN PROGRESO' %}
-                        <span class="badge bg-warning text-dark">EN PROGRESO</span>
-                        {% else %}
-                        <span class="badge bg-danger">PENDIENTE</span>
-                        {% endif %}
-                    </div>
-                    <div class="small text-muted">
-                        <i class="bi bi-calendar-event me-1"></i>Fecha programada: {{ tarea['fecha_programada'] }}
-                        <span class="mx-1">|</span>{{ tarea['area_solicitante'] or 'UTI' }}
-                    </div>
-                    {% if tarea['descripcion'] %}<div class="small mt-1">{{ tarea['descripcion'] }}</div>{% endif %}
-                </div>
-                <div class="d-flex flex-wrap gap-2">
-                    <form method="POST" action="/actividades/estado/{{ tarea['id'] }}/EN PROGRESO">
-                        <button type="submit" class="btn btn-sm btn-outline-warning fw-bold"><i class="bi bi-clock-history me-1"></i>Marcar en proceso</button>
-                    </form>
-                    <form method="POST" action="/actividades/estado/{{ tarea['id'] }}/PENDIENTE">
-                        <button type="submit" class="btn btn-sm btn-outline-danger fw-bold"><i class="bi bi-exclamation-circle me-1"></i>No se completó</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="card-body text-muted"><i class="bi bi-check-circle text-success me-2"></i>No hay actividades vencidas pendientes de revisión.</div>
-    {% endif %}
+<section class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-2 shadow-sm no-print" aria-label="Alertas de actividades">
+    <div><i class="bi bi-bell-fill me-2"></i><strong>Alertas de actividades:</strong> avisaremos 5 minutos antes mientras esta pestaña permanezca abierta.</div>
+    <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="activarSonidoAlertas">
+        <i class="bi bi-volume-up-fill me-1"></i>Activar sonido
+    </button>
 </section>
+<div id="contenedorAlertasActividad" class="no-print" aria-live="polite" aria-relevant="additions"></div>
 
 <!-- Resumen Estadístico -->
 <div class="row g-3 mb-4 no-print">
@@ -240,7 +217,10 @@
                         {% elif a.estado == 'EN PROGRESO' %}<span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i>EN PROGRESO</span>
                         {% else %}<span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>PENDIENTE</span>{% endif %}
                     </div>
-                    <h6 class="fw-bold text-dark mb-2">{{ a.titulo }}</h6>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        <span class="badge bg-primary-subtle text-primary-emphasis">{{ a.codigo_control }}</span>
+                        <h6 class="fw-bold text-dark mb-0">{{ a.titulo }}</h6>
+                    </div>
                     <div class="small text-muted mb-2"><i class="bi bi-calendar-event text-primary me-1"></i>{{ a.fecha_programada }} <span class="mx-1">|</span> <i class="bi bi-clock text-primary me-1"></i>{{ a.hora_inicio or '--:--' }} - {{ a.hora_fin or '--:--' }}</div>
                     <div class="small fw-semibold text-primary mb-2"><i class="bi bi-person-badge me-1"></i>{{ a.area_solicitante or 'UTI' }}</div>
                     {% if a.descripcion %}<p class="small text-muted mb-3">{{ a.descripcion }}</p>{% endif %}
@@ -384,6 +364,7 @@
                                     <div><small class="text-primary fw-bold"><i class="bi bi-geo-alt me-1"></i>{{ a.area_solicitante or 'UTI' }}</small></div>
                                 </td>
                                 <td>
+                                    <span class="badge bg-primary-subtle text-primary-emphasis mb-1">{{ a.codigo_control }}</span>
                                     <div class="fw-bold fs-6">{{ a.titulo }}</div>
                                     {% if a.descripcion %}<small class="text-muted d-block">{{ a.descripcion }}</small>{% endif %}
                                     {% if a.solucion_aplicada %}<small class="text-success d-block fw-semibold"><i class="bi bi-check-all me-1"></i>{{ a.solucion_aplicada }}</small>{% endif %}
@@ -437,6 +418,7 @@
                                             data-fecha="{{ a.fecha_programada }}"
                                             data-h-ini="{{ a.hora_inicio or '' }}"
                                             data-h-fin="{{ a.hora_fin or '' }}"
+                                            data-whatsapp="{{ a.whatsapp_telefono or '' }}"
                                             data-solucion="{{ a.solucion_aplicada or '' }}">
                                             <i class="bi bi-pencil-square"></i>
                                         </button>
@@ -579,6 +561,11 @@
                     <label class="form-label fw-bold text-primary"><i class="bi bi-clock-history me-1"></i>Hora Fin (+1 Hora Estimada)</label>
                     <input type="time" name="hora_fin" id="nueva_hora_fin" class="form-control" value="{{ hora_fin_estimada }}" required>
                 </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-success"><i class="bi bi-whatsapp me-1"></i>WhatsApp para recordatorio (opcional)</label>
+                    <input type="tel" name="whatsapp_telefono" class="form-control" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" placeholder="Ej.: 51987654321">
+                    <small class="text-muted">Incluya el código de país, solo números. El envío se confirma desde WhatsApp.</small>
+                </div>
 
                 <div class="col-12">
                     <label class="form-label"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Requerimiento</label>
@@ -653,6 +640,11 @@
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-clock-history me-1 text-primary"></i>Hora Fin</label>
                     <input type="time" name="hora_fin" id="edit_h_fin" class="form-control">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-success"><i class="bi bi-whatsapp me-1"></i>WhatsApp para recordatorio (opcional)</label>
+                    <input type="tel" name="whatsapp_telefono" id="edit_whatsapp_telefono" class="form-control" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" placeholder="Ej.: 51987654321">
+                    <small class="text-muted">Incluya el código de país, solo números. El envío se confirma desde WhatsApp.</small>
                 </div>
                 <div class="col-12">
                     <label class="form-label fw-bold"><i class="bi bi-card-text me-1 text-primary"></i>Descripción del Requerimiento</label>
@@ -771,6 +763,7 @@ document.addEventListener('click', function(e) {
         document.getElementById('edit_fecha').value = btn.getAttribute('data-fecha') || '';
         document.getElementById('edit_h_ini').value = btn.getAttribute('data-h-ini') || '';
         document.getElementById('edit_h_fin').value = btn.getAttribute('data-h-fin') || '';
+        document.getElementById('edit_whatsapp_telefono').value = btn.getAttribute('data-whatsapp') || '';
         document.getElementById('edit_solucion').value = btn.getAttribute('data-solucion') || '';
 
         new bootstrap.Modal(document.getElementById('modalEditarActividad')).show();
@@ -921,7 +914,120 @@ function abrirModalEliminarActividad(id, titulo) {
     new bootstrap.Modal(document.getElementById('modalEliminarActividad')).show();
 }
 
+let audioAlertas = null;
+let tituloOriginal = document.title;
+let intervaloParpadeoTitulo = null;
+const alertasMostradas = new Set();
+
+function reproducirAlarmaActividad() {
+    if (!audioAlertas) return;
+    const ahora = audioAlertas.currentTime;
+    for (let tono = 0; tono < 3; tono += 1) {
+        const oscilador = audioAlertas.createOscillator();
+        const volumen = audioAlertas.createGain();
+        oscilador.frequency.value = 880;
+        volumen.gain.setValueAtTime(0.18, ahora + tono * 0.45);
+        volumen.gain.exponentialRampToValueAtTime(0.01, ahora + tono * 0.45 + 0.25);
+        oscilador.connect(volumen);
+        volumen.connect(audioAlertas.destination);
+        oscilador.start(ahora + tono * 0.45);
+        oscilador.stop(ahora + tono * 0.45 + 0.25);
+    }
+}
+
+function iniciarParpadeoTitulo() {
+    if (intervaloParpadeoTitulo) return;
+    let mostrarAviso = true;
+    intervaloParpadeoTitulo = window.setInterval(function() {
+        document.title = mostrarAviso ? '¡Actividad próxima!' : tituloOriginal;
+        mostrarAviso = !mostrarAviso;
+    }, 900);
+}
+
+function mostrarAlertaActividad(actividad) {
+    const contenedor = document.getElementById('contenedorAlertasActividad');
+    const alerta = document.createElement('div');
+    alerta.className = 'alert alert-warning alert-dismissible shadow-sm';
+    alerta.setAttribute('role', 'alert');
+
+    const encabezado = document.createElement('strong');
+    encabezado.innerHTML = '<i class="bi bi-alarm-fill me-2"></i>Actividad programada en 5 minutos';
+    const detalle = document.createElement('div');
+    detalle.className = 'mt-1';
+    detalle.textContent = `${actividad.titulo} — ${actividad.fecha_programada} ${actividad.hora_inicio}`;
+    alerta.append(encabezado, detalle);
+
+    if (/^[0-9]{1,15}$/.test(actividad.whatsapp_telefono || '')) {
+        const mensaje = `Recordatorio: la actividad TI "${actividad.titulo}" está programada para el ${actividad.fecha_programada} a las ${actividad.hora_inicio}.`;
+        const enlace = document.createElement('a');
+        enlace.className = 'btn btn-sm btn-success mt-2 me-2';
+        enlace.href = `https://wa.me/${actividad.whatsapp_telefono}?text=${encodeURIComponent(mensaje)}`;
+        enlace.target = '_blank';
+        enlace.rel = 'noopener noreferrer';
+        enlace.innerHTML = '<i class="bi bi-whatsapp me-1"></i>Preparar WhatsApp';
+        alerta.appendChild(enlace);
+    }
+
+    const cerrar = document.createElement('button');
+    cerrar.type = 'button';
+    cerrar.className = 'btn-close';
+    cerrar.setAttribute('data-bs-dismiss', 'alert');
+    cerrar.setAttribute('aria-label', 'Cerrar');
+    alerta.appendChild(cerrar);
+    contenedor.prepend(alerta);
+
+    const fila = document.getElementById(`actividad-${actividad.id}`);
+    if (fila) fila.classList.add('actividad-proxima');
+    iniciarParpadeoTitulo();
+    reproducirAlarmaActividad();
+}
+
+async function revisarAlertasActividades() {
+    const respuesta = await fetch('/api/actividades-alertas', { cache: 'no-store' });
+    if (!respuesta.ok) {
+        throw new Error(`No se pudieron consultar las alertas (${respuesta.status}).`);
+    }
+    const actividadesProximas = await respuesta.json();
+    actividadesProximas.forEach(function(actividad) {
+        const clave = `${actividad.id}:${actividad.fecha_programada}:${actividad.hora_inicio}`;
+        if (alertasMostradas.has(clave)) return;
+        alertasMostradas.add(clave);
+        mostrarAlertaActividad(actividad);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    const activarSonido = document.getElementById('activarSonidoAlertas');
+    activarSonido.addEventListener('click', async function() {
+        const ContextoAudio = window.AudioContext || window.webkitAudioContext;
+        if (!ContextoAudio) {
+            activarSonido.textContent = 'Sonido no disponible';
+            activarSonido.disabled = true;
+            return;
+        }
+        if (!audioAlertas) audioAlertas = new ContextoAudio();
+        await audioAlertas.resume();
+        activarSonido.innerHTML = '<i class="bi bi-volume-up-fill me-1"></i>Sonido activado';
+        activarSonido.classList.replace('btn-outline-primary', 'btn-success');
+    });
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            if (intervaloParpadeoTitulo) window.clearInterval(intervaloParpadeoTitulo);
+            intervaloParpadeoTitulo = null;
+            document.title = tituloOriginal;
+        }
+    });
+
+    revisarAlertasActividades().catch(function(error) {
+        console.error('Error al consultar las alertas de actividades:', error);
+    });
+    window.setInterval(function() {
+        revisarAlertasActividades().catch(function(error) {
+            console.error('Error al consultar las alertas de actividades:', error);
+        });
+    }, 30000);
+
     const nuevaActividadId = {{ actividad_nueva_id|tojson }};
     const nuevaActividad = nuevaActividadId ? document.getElementById(`actividad-${nuevaActividadId}`) : null;
     if (nuevaActividad) {
@@ -951,4 +1057,44 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+
+{% if actividades_vencidas %}
+<details class="card border-0 border-start border-5 border-danger shadow-sm mb-4 tareas-no-realizadas" aria-labelledby="tareasNoRealizadasTitulo" {% if mostrar_tareas_vencidas %}open{% endif %}>
+    <summary class="card-header bg-danger text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span class="fw-bold" id="tareasNoRealizadasTitulo"><i class="bi bi-exclamation-triangle-fill me-2"></i>TAREAS NO REALIZADAS <i class="bi bi-chevron-down ms-1 tareas-no-realizadas-chevron" aria-hidden="true"></i></span>
+        <span class="badge bg-white text-danger">{{ actividades_vencidas|length }} pendiente(s) vencida(s)</span>
+    </summary>
+    <div class="list-group list-group-flush">
+        {% for tarea in actividades_vencidas %}
+        <div class="list-group-item py-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                        <span class="badge bg-primary">{{ codigo_control_actividad(tarea['id']) }}</span>
+                        <strong>{{ tarea['titulo'] }}</strong>
+                        <span class="badge bg-secondary">{{ tarea['categoria'] }}</span>
+                        <span class="badge bg-danger">PENDIENTE</span>
+                    </div>
+                    <div class="small text-muted">
+                        <i class="bi bi-calendar-event me-1"></i>Fecha programada: {{ tarea['fecha_programada'] }}
+                        <span class="mx-1">|</span>{{ tarea['area_solicitante'] or 'UTI' }}
+                    </div>
+                    {% if tarea['descripcion'] %}<div class="small mt-1">{{ tarea['descripcion'] }}</div>{% endif %}
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <form method="POST" action="{{ url_for('cambiar_estado_actividad', actividad_id=tarea['id'], nuevo_estado='EN PROGRESO') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-warning fw-bold"><i class="bi bi-clock-history me-1"></i>Marcar en proceso</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('cambiar_estado_actividad', actividad_id=tarea['id'], nuevo_estado='PENDIENTE') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger fw-bold"><i class="bi bi-exclamation-circle me-1"></i>No se completó</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</details>
+{% endif %}
 {% endblock %}

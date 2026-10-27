@@ -26,17 +26,20 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from database import (
     get_db, init_db, get_biblioteca_db, init_biblioteca_db,
-    ensure_apowerrec_schema, normalizar_numero_celular,
+    ensure_apowerrec_schema, ensure_access_matrix_schema, normalizar_numero_celular,
 )
 from excel_loader import importar_trabajadores_excel, formatear_solo_fecha
 from equipos_loader import importar_equipos_excel
 from docx_generator import rellenar_plantilla_docx, generar_informe_mensual_docx
 from docx_generator import rellenar_plantilla_docx, generar_informe_mensual_docx, generar_reporte_actividades_docx
-from sgd_processor import procesar_sgd_excel, generar_excel_sgd, aplicar_destinatarios_ocultos
+from sgd_processor import (
+    procesar_sgd_excel, generar_excel_sgd, aplicar_destinatarios_ocultos,
+    aplicar_umbral_antiguedad,
+)
 
 app = Flask(__name__)
 PRODUCTION_MODE = os.environ.get("SISGEMOSI_ENV", "development").lower() == "production"
@@ -174,6 +177,266 @@ def buscar_movil_con_imei(cursor, imei, equipo_id_excluir=None, codigo=None):
         ):
             return equipo
     return None
+
+
+def buscar_equipo_por_codigo(cursor, codigo, equipo_id_excluir=None):
+    codigo_limpio = (codigo or "").strip()
+    if not codigo_limpio:
+        return None
+
+    consulta = """
+        SELECT id, codigo_margesi, codigo_interno, categoria, descripcion
+        FROM equipos
+        WHERE (
+            TRIM(COALESCE(codigo_margesi, '')) = ? COLLATE NOCASE
+            OR TRIM(COALESCE(codigo_interno, '')) = ? COLLATE NOCASE
+        )
+    """
+    parametros = [codigo_limpio, codigo_limpio]
+    if equipo_id_excluir is not None:
+        consulta += " AND id != ?"
+        parametros.append(equipo_id_excluir)
+    return cursor.execute(consulta + " LIMIT 1", parametros).fetchone()
+
+
+DIAS_ALERTA_CERTIFICADO = 30
+
+
+def validar_dni(valor):
+    dni = str(valor or "").strip()
+    if not re.fullmatch(r"[0-9]{8}", dni):
+        raise ValueError("El DNI debe contener exactamente 8 números.")
+    return dni
+
+
+def validar_id_formulario(valor, etiqueta):
+    texto = str(valor or "").strip()
+    if not re.fullmatch(r"[0-9]{1,10}", texto) or int(texto) <= 0:
+        raise ValueError(f"El identificador de {etiqueta} no es válido.")
+    return int(texto)
+
+
+def validar_documento_numerico(valor):
+    documento = str(valor or "").strip()
+    if not re.fullmatch(r"[0-9]{1,30}", documento):
+        raise ValueError("El DNI/documento debe contener solo números (máximo 30 dígitos).")
+    return documento
+
+
+def validar_numero_contacto(valor, etiqueta):
+    numero = str(valor or "").strip()
+    if numero and not re.fullmatch(r"[0-9]{1,15}", numero):
+        raise ValueError(f"{etiqueta} debe contener solo números (máximo 15 dígitos).")
+    return numero
+
+
+def validar_correo(valor, etiqueta):
+    correo = str(valor or "").strip()
+    if correo and (
+        len(correo) > 254
+        or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", correo)
+    ):
+        raise ValueError(f"{etiqueta} no tiene un formato válido.")
+    return correo
+
+
+def validar_fecha_formulario(valor, etiqueta, obligatoria=False):
+    texto = str(valor or "").strip()
+    if not texto:
+        if obligatoria:
+            raise ValueError(f"Debe ingresar {etiqueta}.")
+        return ""
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", texto):
+        raise ValueError(f"{etiqueta} no es válida. Seleccione una fecha del calendario.")
+    try:
+        return date.fromisoformat(texto).isoformat()
+    except ValueError as error:
+        raise ValueError(f"{etiqueta} no es una fecha real.") from error
+
+
+def validar_hora_formulario(valor, etiqueta):
+    texto = str(valor or "").strip()
+    if texto and not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", texto):
+        raise ValueError(f"{etiqueta} debe tener el formato HH:MM.")
+    return texto
+
+
+def validar_rango_fechas(desde, hasta, etiqueta="periodo"):
+    desde_validada = validar_fecha_formulario(desde, f"la fecha inicial de {etiqueta}")
+    hasta_validada = validar_fecha_formulario(hasta, f"la fecha final de {etiqueta}")
+    if desde_validada and hasta_validada and hasta_validada < desde_validada:
+        raise ValueError(f"La fecha final de {etiqueta} no puede ser anterior a la inicial.")
+    return desde_validada, hasta_validada
+
+
+def validar_campos_actividad(titulo, descripcion, categoria, area, prioridad, estado):
+    categorias = {
+        "HARDWARE", "SOFTWARE", "REDES", "TOKENS", "EQUIPOS MOVILES",
+        "CAPACITACION", "GRABAR SESION", "TRAMITE UTI", "SOPORTE TECNICO",
+    }
+    if not titulo or len(titulo) > 300:
+        raise ValueError("El título es obligatorio y no puede superar los 300 caracteres.")
+    if len(descripcion) > 5000 or len(area) > 200:
+        raise ValueError("La descripción o el área solicitante superan la longitud permitida.")
+    if categoria not in categorias:
+        raise ValueError("La categoría de actividad no es válida.")
+    if prioridad not in {"ALTA", "MEDIA", "BAJA"}:
+        raise ValueError("La prioridad seleccionada no es válida.")
+    if estado not in {"PENDIENTE", "EN PROGRESO", "COMPLETADA"}:
+        raise ValueError("El estado seleccionado no es válido.")
+
+
+def normalizar_encabezado_certificado(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(caracter for caracter in texto if not unicodedata.combining(caracter))
+    return re.sub(r"[^a-z0-9]+", "_", texto.lower()).strip("_")
+
+
+def fecha_certificado_iso(valor):
+    if valor is None or str(valor).strip() == "":
+        raise ValueError("Falta una fecha obligatoria.")
+    if isinstance(valor, datetime):
+        return valor.date().isoformat()
+    if isinstance(valor, date):
+        return valor.isoformat()
+    if isinstance(valor, (int, float)):
+        try:
+            return openpyxl.utils.datetime.from_excel(valor).date().isoformat()
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError("La fecha del certificado no es válida.") from error
+
+    texto = str(valor).strip()
+    for formato in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(texto, formato).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError(f"Fecha inválida: {texto}. Use YYYY-MM-DD o DD/MM/YYYY.")
+
+
+def datos_certificado_desde_formulario(formulario, cursor=None, exigir_titular=False):
+    titular_formulario = normalizar_encabezado_certificado(
+        formulario.get("tipo_titular", "")
+    )
+    tipos_titular = {
+        "personal": "PERSONAL",
+        "trabajador": "PERSONAL",
+        "comite": "COMITE",
+        "miembro_del_comite": "COMITE",
+        "comite_de_gestion_de_compras": "COMITE",
+        "registro_previo": "",
+    }
+    tipo_titular = tipos_titular.get(titular_formulario, titular_formulario.upper())
+    if exigir_titular and tipo_titular not in {"PERSONAL", "COMITE"}:
+        raise ValueError("Indique si el titular pertenece al personal o al comité de gestión de compras.")
+    trabajador = None
+    if tipo_titular == "PERSONAL":
+        if cursor is None:
+            raise ValueError("No se pudo consultar el padrón actualizado de personal.")
+        personal_id = formulario.get("personal_id", "").strip()
+        if personal_id:
+            if not re.fullmatch(r"[0-9]+", personal_id):
+                raise ValueError("Seleccione un trabajador válido del padrón.")
+            trabajador = cursor.execute(
+                "SELECT * FROM trabajadores WHERE id = ? AND activo = 1",
+                (int(personal_id),),
+            ).fetchone()
+        else:
+            dni = validar_documento_numerico(formulario.get("dni"))
+            trabajador = cursor.execute(
+                "SELECT * FROM trabajadores WHERE dni = ? AND activo = 1", (dni,)
+            ).fetchone()
+        if not trabajador:
+            raise ValueError("Seleccione un trabajador activo del padrón actualizado.")
+    elif tipo_titular not in ("", "COMITE"):
+        raise ValueError("Seleccione personal del padrón o miembro del comité.")
+
+    if trabajador:
+        dni = trabajador["dni"]
+        apellido_paterno = trabajador["apellido_paterno"]
+        apellido_materno = trabajador["apellido_materno"]
+        nombres = trabajador["nombres"]
+        cargo = trabajador["cargo"] or ""
+        correo = trabajador["correo_institucional"] or trabajador["correo_personal"] or ""
+        trabajador_id = trabajador["id"]
+    else:
+        dni = validar_documento_numerico(formulario.get("dni"))
+        apellido_paterno = formulario.get("apellido_paterno", "").strip()
+        apellido_materno = formulario.get("apellido_materno", "").strip()
+        nombres = formulario.get("nombres", "").strip()
+        cargo = formulario.get("cargo", "").strip()
+        correo = formulario.get("correo", "").strip()
+        trabajador_id = None
+
+    datos = {
+        "dni": dni,
+        "apellido_paterno": apellido_paterno,
+        "apellido_materno": apellido_materno,
+        "nombres": nombres,
+        "cargo": cargo,
+        "oficina": formulario.get("oficina", "").strip(),
+        "correo": correo,
+        "tipo_certificado": formulario.get("tipo_certificado", "").strip().upper(),
+        "trabajador_id": trabajador_id,
+        "numero_resolucion": formulario.get("numero_resolucion", "").strip(),
+        "fecha_inicio": validar_fecha_formulario(
+            formulario.get("fecha_inicio"), "la fecha de inicio", obligatoria=True
+        ),
+        "fecha_caducidad": validar_fecha_formulario(
+            formulario.get("fecha_caducidad"), "la fecha de caducidad", obligatoria=True
+        ),
+    }
+    obligatorios = (
+        "dni", "apellido_paterno", "apellido_materno", "nombres", "tipo_certificado"
+    )
+    if any(not datos[campo] for campo in obligatorios):
+        raise ValueError("Complete el DNI/documento, nombres, ambos apellidos y tipo de certificado.")
+    tipo_certificado = normalizar_encabezado_certificado(datos["tipo_certificado"])
+    tipos_certificado = {
+        "token": "TOKEN",
+        "certificado_digital_token": "TOKEN",
+        "para_pc": "PARA PC",
+        "certificado_digital_para_pc": "PARA PC",
+    }
+    datos["tipo_certificado"] = tipos_certificado.get(tipo_certificado, "")
+    if not datos["tipo_certificado"]:
+        raise ValueError("El tipo de certificado debe ser TOKEN o PARA PC.")
+    if tipo_titular == "COMITE" and not datos["numero_resolucion"]:
+        raise ValueError("Ingrese el número de resolución del miembro del comité.")
+    if tipo_titular == "COMITE" and not datos["cargo"]:
+        raise ValueError("Ingrese el cargo del miembro del comité.")
+    limites = {
+        "apellido_paterno": 100,
+        "apellido_materno": 100,
+        "nombres": 120,
+        "cargo": 150,
+        "oficina": 150,
+        "correo": 254,
+        "tipo_certificado": 100,
+        "numero_resolucion": 100,
+    }
+    if any(len(datos[campo]) > limite for campo, limite in limites.items()):
+        raise ValueError("Uno o más campos del certificado superan la longitud permitida.")
+    datos["correo"] = validar_correo(datos["correo"], "El correo")
+    if datos["fecha_caducidad"] < datos["fecha_inicio"]:
+        raise ValueError("La fecha de caducidad no puede ser anterior a la fecha de inicio.")
+    return datos
+
+
+def buscar_certificado_duplicado(cursor, datos, certificado_id=None):
+    consulta = """
+        SELECT id FROM certificados_digitales
+        WHERE dni = ? AND tipo_certificado = ?
+          AND fecha_inicio = ? AND fecha_caducidad = ?
+    """
+    parametros = [
+        datos["dni"], datos["tipo_certificado"],
+        datos["fecha_inicio"], datos["fecha_caducidad"],
+    ]
+    if certificado_id is not None:
+        consulta += " AND id != ?"
+        parametros.append(certificado_id)
+    return cursor.execute(consulta, parametros).fetchone()
 
 
 def sanitizar_texto_excel(val):
@@ -404,11 +667,13 @@ def admin_required(f):
 PERMISSION_MODULES = {
     "personal": "Personal",
     "prestamos": "Préstamos",
+    "tokens": "Gestión de certificados digitales",
     "actividades": "Actividades TI",
     "documentaria": "Gestión documentaria",
     "sgd": "Monitor SGD",
     "reportes": "Reportes",
     "biblioteca": "Biblioteca Virtual PAE",
+    "cargos_asignaciones": "Cargos y sistemas asignados",
 }
 PERMISSION_ACTIONS = {
     "ver": "Ver",
@@ -500,9 +765,1143 @@ def calcular_duracion(f_ini_str, f_fin_str=None):
     except Exception:
         return "-"
 
+def codigo_control_actividad(actividad_id):
+    return f"ACT-{int(actividad_id):06d}"
+
 @app.context_processor
 def utility_processor():
-    return dict(calcular_duracion=calcular_duracion, usuario_tiene_permiso=usuario_tiene_permiso, csrf_token=obtener_token_csrf)
+    return dict(
+        calcular_duracion=calcular_duracion,
+        codigo_control_actividad=codigo_control_actividad,
+        usuario_tiene_permiso=usuario_tiene_permiso,
+        csrf_token=obtener_token_csrf,
+    )
+
+NIVELES_ACCESO_UT = {
+    "CUENTA": "Solo cuenta (sin acceso funcional)",
+    "LECTURA": "Consulta",
+    "REGISTRO": "Registro",
+    "EDICION": "Edición",
+    "ADMINISTRACION": "Administración",
+}
+NIVELES_SOLICITUD_UT = {
+    "CONSULTA": "Consulta",
+    "REGISTRO": "Registro",
+    "MODIFICACION": "Modificación",
+    "APROBACION": "Aprobación",
+    "REPORTES": "Reportes",
+}
+ACCIONES_SOLICITUD_UT = {
+    "MANTENER": "Mantener",
+    "MODIFICAR": "Modificar",
+    "NUEVO": "Nuevo",
+    "RETIRAR": "Retirar",
+}
+
+def _obtener_conexion_matriz_ut():
+    conn = get_db()
+    ensure_access_matrix_schema(conn)
+    return conn
+
+ORDEN_SISTEMAS_UTI = {
+    nombre: indice
+    for indice, nombre in enumerate((
+        "SIGO", "SIGDEL", "SGD", "SADE", "CORREO ELECTRONICO", "MESA DE AYUDA",
+        "APK - APLICATIVOS MOVILES", "APK - APLICATIVOS MOBILES",
+        "SIGA", "SIAF CONSULTA"
+    ))
+}
+
+INFO_SISTEMAS_CATALOGO_UT = {
+    "SIGO": {
+        "icono": "bi-diagram-3-fill",
+        "icono_bg": "ut-bg-sigo",
+        "color": "#2563eb",
+        "descripcion": "Sistema Integrado de Gestión Operativa",
+        "categoria": "Operaciones y Gestión",
+    },
+    "SIGDEL": {
+        "icono": "bi-truck",
+        "icono_bg": "ut-bg-sigdel",
+        "color": "#7c3aed",
+        "descripcion": "Sistema de Gestión de Distribución",
+        "categoria": "Distribución y Entregas",
+    },
+    "SGD": {
+        "icono": "bi-file-earmark-text-fill",
+        "icono_bg": "ut-bg-sgd",
+        "color": "#059669",
+        "descripcion": "Sistema de Gestión Documental",
+        "categoria": "Trámite Documentario",
+    },
+    "SADE": {
+        "icono": "bi-building-fill-gear",
+        "icono_bg": "ut-bg-sade",
+        "color": "#d97706",
+        "descripcion": "Sistema de Administración",
+        "categoria": "Administración",
+    },
+    "CORREO ELECTRONICO": {
+        "icono": "bi-envelope-at-fill",
+        "icono_bg": "ut-bg-correo",
+        "color": "#dc2626",
+        "descripcion": "Correo Institucional",
+        "categoria": "Comunicación Oficial",
+    },
+    "MESA DE AYUDA": {
+        "icono": "bi-headset",
+        "icono_bg": "ut-bg-mesa",
+        "color": "#0891b2",
+        "descripcion": "Mesa de Ayuda y Soporte TI",
+        "categoria": "Soporte Técnico UTI",
+    },
+    "APK - APLICATIVOS MOVILES": {
+        "icono": "bi-phone-fill",
+        "icono_bg": "ut-bg-apk",
+        "color": "#16a34a",
+        "descripcion": "Aplicativos móviles institucionales del PAE",
+        "categoria": "Aplicativos Móviles (APK)",
+    },
+    "APK - APLICATIVOS MOBILES": {
+        "icono": "bi-phone-fill",
+        "icono_bg": "ut-bg-apk",
+        "color": "#16a34a",
+        "descripcion": "Aplicativos móviles institucionales del PAE",
+        "categoria": "Aplicativos Móviles (APK)",
+    },
+    "APLICATIVO MOVIL: PAE IIEE": {
+        "icono": "bi-phone-fill",
+        "icono_bg": "ut-bg-apk",
+        "color": "#16a34a",
+        "descripcion": "Supervisión PAE en IIEE",
+        "categoria": "Aplicativo Móvil APK",
+    },
+    "APLICATIVO MOVIL: PAE ESTABLECIMIENTO": {
+        "icono": "bi-phone-fill",
+        "icono_bg": "ut-bg-apk-est",
+        "color": "#4f46e5",
+        "descripcion": "Supervisión en Establecimiento",
+        "categoria": "Aplicativo Móvil APK",
+    },
+    "APLICATIVO MOVIL: ALMACEN EN IE": {
+        "icono": "bi-phone-fill",
+        "icono_bg": "ut-bg-apk-alm",
+        "color": "#ea580c",
+        "descripcion": "Control de Almacén en IE",
+        "categoria": "Aplicativo Móvil APK",
+    },
+    "APLICATIVO MOVIL: IIEE": {
+        "icono": "bi-phone-fill",
+        "icono_bg": "ut-bg-apk-iiee",
+        "color": "#0d9488",
+        "descripcion": "Aplicativo Móvil IIEE",
+        "categoria": "Aplicativo Móvil APK",
+    },
+    "SIGA": {
+        "icono": "bi-journal-check",
+        "icono_bg": "ut-bg-siga",
+        "color": "#9333ea",
+        "descripcion": "Sistema Integrado de Gestión Administrativa",
+        "categoria": "Gestión MEF",
+    },
+    "SIAF CONSULTA": {
+        "icono": "bi-bank2",
+        "icono_bg": "ut-bg-siaf",
+        "color": "#0284c7",
+        "descripcion": "Sistema de Administración Financiera (Consulta)",
+        "categoria": "Finanzas MEF",
+    },
+}
+
+def _decorar_sistema_ut(sistema):
+    nombre_limpio = sistema["nombre"].upper().strip()
+    info = INFO_SISTEMAS_CATALOGO_UT.get(nombre_limpio, {
+        "icono": "bi-app-indicator",
+        "icono_bg": "ut-bg-default",
+        "color": "#475569",
+        "descripcion": "Sistema / Aplicativo UTI",
+        "categoria": sistema.get("tipo", "SISTEMA"),
+    })
+    sistema["icono"] = info["icono"]
+    sistema["icono_bg"] = info["icono_bg"]
+    sistema["color"] = info["color"]
+    sistema["descripcion"] = info["descripcion"]
+    sistema["categoria"] = info["categoria"]
+    return sistema
+
+def _construir_arbol_modulos_ut(modulos):
+    nodos = {modulo["id"]: {**modulo, "hijos": []} for modulo in modulos}
+    raices = []
+    for modulo in modulos:
+        nodo = nodos[modulo["id"]]
+        padre = nodos.get(modulo["padre_id"])
+        if padre:
+            padre["hijos"].append(nodo)
+        else:
+            raices.append(nodo)
+
+    orden_tipos = {"SISTEMA": 0, "SERVICIO": 1, "APK": 2, "MODULO": 3, "SUBMODULO": 4}
+
+    def contar_descendientes(nodo):
+        nodo["cantidad_descendientes"] = sum(
+            1 + contar_descendientes(hijo) for hijo in nodo["hijos"]
+        )
+        return nodo["cantidad_descendientes"]
+
+    for nodo in nodos.values():
+        nodo["hijos"].sort(key=lambda hijo: hijo["id"])
+        contar_descendientes(nodo)
+    raices.sort(key=lambda nodo: (
+        ORDEN_SISTEMAS_UTI.get(nodo["nombre"].upper(), 100 + orden_tipos.get(nodo["tipo"], 4)),
+        nodo["nombre"].casefold(),
+    ))
+    return raices
+
+def _catalogo_solicitud_acceso_ut(cursor):
+    modulos = [
+        dict(row) for row in cursor.execute("""
+            SELECT id, nombre, tipo, padre_id, obligatorio_todos
+            FROM sistemas_modulos_ut
+            WHERE activo = 1
+        """).fetchall()
+    ]
+    por_id = {modulo["id"]: modulo for modulo in modulos}
+    for modulo in modulos:
+        partes = [modulo["nombre"]]
+        padre_id = modulo["padre_id"]
+        visitados = {modulo["id"]}
+        while padre_id in por_id and padre_id not in visitados:
+            padre = por_id[padre_id]
+            partes.append(padre["nombre"])
+            visitados.add(padre_id)
+            padre_id = padre["padre_id"]
+        modulo["ruta"] = " / ".join(reversed(partes))
+    return sorted(modulos, key=lambda modulo: modulo["ruta"].casefold())
+
+def _etiqueta_nivel_acceso_ut(nivel):
+    return NIVELES_ACCESO_UT.get(
+        nivel,
+        NIVELES_SOLICITUD_UT.get(nivel, nivel),
+    )
+
+def _obtener_niveles_perfil_cargo_ut(cursor, perfil_id):
+    niveles = {
+        row["id"]: "CUENTA"
+        for row in cursor.execute("""
+            SELECT id
+            FROM sistemas_modulos_ut
+            WHERE activo = 1 AND obligatorio_todos = 1
+        """).fetchall()
+    }
+    niveles.update({
+        row["sistema_modulo_id"]: row["nivel_acceso"]
+        for row in cursor.execute("""
+            SELECT a.sistema_modulo_id, a.nivel_acceso
+            FROM accesos_perfil_cargo_ut a
+            JOIN sistemas_modulos_ut m
+              ON m.id = a.sistema_modulo_id AND m.activo = 1
+            WHERE a.perfil_id = ?
+        """, (perfil_id,)).fetchall()
+    })
+    return niveles
+
+def _registrar_snapshot_accesos_trabajador_ut(cursor, trabajador_id, perfil, usuario_id):
+    niveles = _obtener_niveles_perfil_cargo_ut(cursor, perfil["id"])
+    if not niveles:
+        raise ValueError(
+            f"El perfil del cargo «{perfil['cargo']}» no tiene sistemas activos asignados."
+        )
+    cursor.execute("""
+        INSERT INTO solicitudes_acceso_trabajador_ut
+            (trabajador_id, funciones, nivel_acceso, reportes_requeridos,
+             accion, autorizador, usuario_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        trabajador_id,
+        perfil["funciones"],
+        "CONSULTA",
+        perfil["reportes_requeridos"],
+        perfil["accion_acceso"],
+        perfil["autorizador"],
+        usuario_id,
+    ))
+    solicitud_id = cursor.lastrowid
+    cursor.executemany("""
+        INSERT INTO modulos_solicitud_acceso_trabajador_ut
+            (solicitud_id, sistema_modulo_id, nivel_acceso)
+        VALUES (?, ?, ?)
+    """, [
+        (solicitud_id, modulo_id, nivel)
+        for modulo_id, nivel in sorted(niveles.items())
+    ])
+    return solicitud_id
+
+def _obtener_perfiles_cargo_validados(cursor):
+    modulos = _catalogo_solicitud_acceso_ut(cursor)
+    modulos_activos = {modulo["id"]: modulo for modulo in modulos}
+    accesos_por_perfil = {}
+    for acceso in cursor.execute("""
+        SELECT a.perfil_id, a.sistema_modulo_id, a.nivel_acceso
+        FROM accesos_perfil_cargo_ut a
+        JOIN sistemas_modulos_ut m
+          ON m.id = a.sistema_modulo_id AND m.activo = 1
+    """).fetchall():
+        accesos_por_perfil.setdefault(acceso["perfil_id"], {})[
+            acceso["sistema_modulo_id"]
+        ] = acceso["nivel_acceso"]
+
+    perfiles = []
+    for fila in cursor.execute("""
+        SELECT id, cargo, funciones, autorizador, reportes_requeridos, accion_acceso
+        FROM perfiles_cargo_ut
+        WHERE activo = 1 AND validado = 1
+          AND TRIM(funciones) != '' AND TRIM(autorizador) != ''
+          AND TRIM(reportes_requeridos) != ''
+        ORDER BY cargo COLLATE NOCASE
+    """).fetchall():
+        niveles = {
+            modulo["id"]: "CUENTA"
+            for modulo in modulos
+            if modulo["obligatorio_todos"]
+        }
+        niveles.update(accesos_por_perfil.get(fila["id"], {}))
+        asignaciones = [
+            {
+                "id": modulo_id,
+                "ruta": modulos_activos[modulo_id]["ruta"],
+                "tipo": modulos_activos[modulo_id]["tipo"],
+                "nivel": nivel,
+                "nivel_nombre": _etiqueta_nivel_acceso_ut(nivel),
+            }
+            for modulo_id, nivel in niveles.items()
+            if modulo_id in modulos_activos
+        ]
+        asignaciones.sort(key=lambda item: item["ruta"].casefold())
+        perfiles.append({
+            "id": fila["id"],
+            "cargo": fila["cargo"],
+            "funciones": fila["funciones"],
+            "autorizador": fila["autorizador"],
+            "reportes_requeridos": fila["reportes_requeridos"],
+            "accion_acceso": fila["accion_acceso"],
+            "asignaciones": asignaciones,
+        })
+    return perfiles
+
+@app.route("/cargos-asignaciones")
+@permiso_requerido("cargos_asignaciones", "ver")
+@login_required
+def cargos_asignaciones_ut():
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR IGNORE INTO perfiles_cargo_ut (cargo)
+        SELECT DISTINCT TRIM(cargo)
+        FROM trabajadores
+        WHERE cargo IS NOT NULL AND TRIM(cargo) != ''
+    """)
+
+    modulos_catalogo = [
+        dict(row) for row in cursor.execute("""
+            SELECT m.*, p.nombre AS padre_nombre
+            FROM sistemas_modulos_ut m
+            LEFT JOIN sistemas_modulos_ut p ON p.id = m.padre_id
+            ORDER BY m.activo DESC, m.nombre COLLATE NOCASE
+        """).fetchall()
+    ]
+    modulos = [item for item in modulos_catalogo if item["activo"]]
+    modulos_por_id = {item["id"]: item for item in modulos_catalogo}
+    for item in modulos_catalogo:
+        camino = [item["nombre"]]
+        padre_id = item["padre_id"]
+        visitados = {item["id"]}
+        while padre_id in modulos_por_id and padre_id not in visitados:
+            padre = modulos_por_id[padre_id]
+            camino.append(padre["nombre"])
+            visitados.add(padre_id)
+            padre_id = padre["padre_id"]
+        item["ruta"] = " / ".join(reversed(camino))
+    arbol_catalogo = _construir_arbol_modulos_ut(modulos_catalogo)
+    arbol_modulos = _construir_arbol_modulos_ut(modulos)
+
+    perfiles = [
+        dict(row) for row in cursor.execute("""
+            SELECT p.*,
+                   COUNT(DISTINCT t.id) AS trabajadores_asignados,
+                   COUNT(DISTINCT m.id) AS modulos_asignados
+            FROM perfiles_cargo_ut p
+            LEFT JOIN trabajadores t
+                ON LOWER(TRIM(COALESCE(t.cargo, ''))) = LOWER(TRIM(p.cargo))
+               AND t.activo = 1
+            LEFT JOIN accesos_perfil_cargo_ut a ON a.perfil_id = p.id
+            LEFT JOIN sistemas_modulos_ut m
+                ON m.id = a.sistema_modulo_id AND m.activo = 1
+            WHERE p.activo = 1
+            GROUP BY p.id
+            ORDER BY p.cargo COLLATE NOCASE
+        """).fetchall()
+    ]
+    accesos_por_perfil = {}
+    for acceso in cursor.execute("""
+        SELECT perfil_id, sistema_modulo_id, nivel_acceso
+        FROM accesos_perfil_cargo_ut
+    """).fetchall():
+        accesos_por_perfil.setdefault(acceso["perfil_id"], {})[
+            acceso["sistema_modulo_id"]
+        ] = acceso["nivel_acceso"]
+
+    reporte_trabajadores = _obtener_reporte_accesos_ut(cursor)
+    historial = cursor.execute("""
+        SELECT h.*, u.nombre_completo AS usuario_nombre
+        FROM historial_perfiles_cargo_ut h
+        LEFT JOIN usuarios_sistema u ON u.id = h.usuario_id
+        ORDER BY h.registrado_el DESC, h.id DESC
+        LIMIT 30
+    """).fetchall()
+
+    sistemas_catalogo = []
+    for item in arbol_catalogo:
+        if item.get("padre_id") is None and item.get("activo") and item.get("tipo") in {"SISTEMA", "SERVICIO"}:
+            if not item.get("nombre", "").upper().startswith("APLICATIVO MOVIL:"):
+                sistemas_catalogo.append(_decorar_sistema_ut(dict(item)))
+
+    sistemas_catalogo.sort(key=lambda s: (
+        ORDEN_SISTEMAS_UTI.get(s["nombre"].upper(), 999),
+        s["nombre"].casefold()
+    ))
+
+    conn.commit()
+    conn.close()
+    return render_template(
+        "cargos_asignaciones.html",
+        modulos=modulos,
+        modulos_catalogo=modulos_catalogo,
+        arbol_catalogo=arbol_catalogo,
+        arbol_modulos=arbol_modulos,
+        sistemas_catalogo=sistemas_catalogo,
+        tab_activo=request.args.get("tab", "catalogo"),
+        perfiles=perfiles,
+        accesos_por_perfil=accesos_por_perfil,
+        reporte_trabajadores=reporte_trabajadores,
+        historial=historial,
+        niveles_acceso=NIVELES_ACCESO_UT,
+        total_trabajadores=len(reporte_trabajadores),
+    )
+
+@app.route("/cargos-asignaciones/catalogo")
+@permiso_requerido("cargos_asignaciones", "ver")
+@login_required
+def catalogo_sistemas_ut():
+    return redirect(url_for("cargos_asignaciones_ut", tab="catalogo"))
+
+def _obtener_reporte_accesos_ut(cursor):
+    modulos = {
+        row["id"]: dict(row)
+        for row in cursor.execute("""
+            SELECT id, nombre, tipo, padre_id, obligatorio_todos
+            FROM sistemas_modulos_ut
+            WHERE activo = 1
+        """).fetchall()
+    }
+    accesos_perfil = {}
+    for row in cursor.execute("""
+        SELECT a.perfil_id, a.sistema_modulo_id, a.nivel_acceso
+        FROM accesos_perfil_cargo_ut a
+        JOIN sistemas_modulos_ut m ON m.id = a.sistema_modulo_id AND m.activo = 1
+    """).fetchall():
+        accesos_perfil.setdefault(row["perfil_id"], {})[
+            row["sistema_modulo_id"]
+        ] = row["nivel_acceso"]
+
+    todos_modulos = {
+        row["id"]: dict(row)
+        for row in cursor.execute("""
+            SELECT id, nombre, tipo, padre_id, activo
+            FROM sistemas_modulos_ut
+        """).fetchall()
+    }
+    solicitudes = {
+        row["trabajador_id"]: dict(row)
+        for row in cursor.execute("""
+            SELECT s.*
+            FROM solicitudes_acceso_trabajador_ut s
+            WHERE s.id = (
+                SELECT MAX(s2.id)
+                FROM solicitudes_acceso_trabajador_ut s2
+                WHERE s2.trabajador_id = s.trabajador_id
+            )
+        """).fetchall()
+    }
+    if solicitudes:
+        solicitudes_por_id = {
+            solicitud["id"]: solicitud for solicitud in solicitudes.values()
+        }
+        for row in cursor.execute("""
+            SELECT a.solicitud_id, m.id, m.nombre, m.tipo, m.padre_id, m.activo,
+                   a.nivel_acceso
+            FROM modulos_solicitud_acceso_trabajador_ut a
+            JOIN sistemas_modulos_ut m ON m.id = a.sistema_modulo_id
+            WHERE a.solicitud_id IN (
+                SELECT MAX(s.id)
+                FROM solicitudes_acceso_trabajador_ut s
+                GROUP BY s.trabajador_id
+            )
+        """).fetchall():
+            solicitud = solicitudes_por_id[row["solicitud_id"]]
+            solicitud.setdefault("modulos", []).append(dict(row))
+
+    trabajadores = cursor.execute("""
+        SELECT t.id, t.nombres, t.apellido_paterno, t.apellido_materno, t.cargo,
+               p.id AS perfil_id, p.funciones, p.autorizador, p.validado
+        FROM trabajadores t
+        LEFT JOIN perfiles_cargo_ut p
+            ON LOWER(TRIM(COALESCE(t.cargo, ''))) = LOWER(TRIM(p.cargo))
+           AND p.activo = 1
+        WHERE t.activo = 1
+        ORDER BY t.apellido_paterno COLLATE NOCASE,
+                 t.apellido_materno COLLATE NOCASE, t.nombres COLLATE NOCASE
+    """).fetchall()
+
+    def ruta_modulo(modulo_id):
+        partes = []
+        visitados = set()
+        actual_id = modulo_id
+        while actual_id in todos_modulos and actual_id not in visitados:
+            actual = todos_modulos[actual_id]
+            partes.append(actual["nombre"])
+            visitados.add(actual_id)
+            actual_id = actual["padre_id"]
+        return " / ".join(reversed(partes))
+
+    resultado = []
+    for trabajador in trabajadores:
+        niveles = {
+            item["id"]: "CUENTA"
+            for item in modulos.values()
+            if item["obligatorio_todos"]
+        }
+        perfil_id = trabajador["perfil_id"]
+        if perfil_id:
+            niveles.update(accesos_perfil.get(perfil_id, {}))
+        accesos = [
+            {
+                "ruta": ruta_modulo(modulo_id),
+                "nivel": nivel,
+                "nivel_nombre": NIVELES_ACCESO_UT[nivel],
+            }
+            for modulo_id, nivel in niveles.items()
+            if modulo_id in modulos
+        ]
+        accesos.sort(key=lambda acceso: acceso["ruta"].casefold())
+        solicitud = solicitudes.get(trabajador["id"])
+        if solicitud:
+            solicitud["nivel_nombre"] = NIVELES_SOLICITUD_UT[solicitud["nivel_acceso"]]
+            solicitud["accion_nombre"] = ACCIONES_SOLICITUD_UT[solicitud["accion"]]
+            solicitud.setdefault("modulos", [])
+            solicitud["modulos"].sort(
+                key=lambda modulo: ruta_modulo(modulo["id"]).casefold()
+            )
+            for modulo in solicitud["modulos"]:
+                modulo["ruta"] = ruta_modulo(modulo["id"])
+                modulo["nivel_nombre"] = _etiqueta_nivel_acceso_ut(
+                    modulo["nivel_acceso"]
+                )
+                modulo["estado_catalogo"] = (
+                    "ACTIVO" if modulo["activo"] else "INACTIVO"
+                )
+        resultado.append({
+            "id": trabajador["id"],
+            "nombre": " ".join(
+                valor for valor in (
+                    trabajador["nombres"],
+                    trabajador["apellido_paterno"],
+                    trabajador["apellido_materno"],
+                ) if valor
+            ),
+            "cargo": trabajador["cargo"] or "SIN CARGO REGISTRADO",
+            "funciones": trabajador["funciones"] or "",
+            "autorizador": trabajador["autorizador"] or "",
+            "estado_perfil": (
+                "SIN PERFIL DE CARGO" if not perfil_id else
+                "CONFIGURADO" if trabajador["validado"] else
+                "PENDIENTE DE VALIDACIÓN"
+            ),
+            "accesos": accesos,
+            "solicitud": solicitud,
+        })
+    return resultado
+
+def _redir_modulo_ut(form):
+    redirigir_sistema = form.get("redirigir_sistema", "").strip()
+    if re.fullmatch(r"[0-9]+", redirigir_sistema):
+        return redirect(url_for("sistema_detalle_ut", sistema_id=int(redirigir_sistema)))
+    if form.get("redirigir") == "catalogo":
+        return redirect(url_for("cargos_asignaciones_ut", tab="catalogo"))
+    return redirect(url_for("cargos_asignaciones_ut"))
+
+@app.route("/cargos-asignaciones/sistemas/<int:sistema_id>")
+@permiso_requerido("cargos_asignaciones", "ver")
+@login_required
+def sistema_detalle_ut(sistema_id):
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    sistema_row = cursor.execute("SELECT * FROM sistemas_modulos_ut WHERE id = ?", (sistema_id,)).fetchone()
+    if not sistema_row:
+        conn.close()
+        flash("El sistema solicitado no existe en el catálogo.", "warning")
+        return redirect(url_for("cargos_asignaciones_ut"))
+
+    sistema = _decorar_sistema_ut(dict(sistema_row))
+
+    modulos_raw = [
+        dict(row) for row in cursor.execute("""
+            SELECT * FROM sistemas_modulos_ut ORDER BY activo DESC, nombre COLLATE NOCASE
+        """).fetchall()
+    ]
+    modulos_por_id = {item["id"]: item for item in modulos_raw}
+    for item in modulos_raw:
+        camino = [item["nombre"]]
+        p_id = item["padre_id"]
+        visitados = {item["id"]}
+        while p_id in modulos_por_id and p_id not in visitados:
+            padre = modulos_por_id[p_id]
+            camino.append(padre["nombre"])
+            visitados.add(p_id)
+            p_id = padre["padre_id"]
+        item["ruta"] = " / ".join(reversed(camino))
+
+    # Identificar todos los descendientes de este sistema
+    def es_descendiente(item_id, root_id):
+        curr_id = item_id
+        visitados = set()
+        while curr_id in modulos_por_id and curr_id not in visitados:
+            visitados.add(curr_id)
+            curr = modulos_por_id[curr_id]
+            if curr["padre_id"] == root_id:
+                return True
+            curr_id = curr["padre_id"]
+        return False
+
+    descendientes = [_decorar_sistema_ut(dict(m)) for m in modulos_raw if es_descendiente(m["id"], sistema_id)]
+
+    nodos = {m["id"]: {**m, "hijos": []} for m in descendientes}
+    arbol_hijos = []
+    for m in descendientes:
+        nodo = nodos[m["id"]]
+        if m["padre_id"] == sistema_id:
+            arbol_hijos.append(nodo)
+        elif m["padre_id"] in nodos:
+            nodos[m["padre_id"]]["hijos"].append(nodo)
+
+    def contar(n):
+        n["cantidad_descendientes"] = sum(1 + contar(h) for h in n["hijos"])
+        return n["cantidad_descendientes"]
+
+    for n in nodos.values():
+        n["hijos"].sort(key=lambda h: h["id"])
+        contar(n)
+    arbol_hijos.sort(key=lambda n: n["nombre"].casefold())
+
+    modulos_del_sistema = [
+        m for m in descendientes if m["activo"] and m["tipo"] in {"MODULO", "SUBMODULO", "APK"}
+    ]
+    modulos_del_sistema.sort(key=lambda m: m["ruta"].casefold())
+
+    total_descendientes = len(descendientes)
+    conn.close()
+
+    return render_template(
+        "sistema_detalle.html",
+        sistema=sistema,
+        arbol_hijos=arbol_hijos,
+        modulos_del_sistema=modulos_del_sistema,
+        total_descendientes=total_descendientes,
+    )
+
+@app.route("/cargos-asignaciones/modulos/nuevo", methods=["POST"])
+@permiso_requerido("cargos_asignaciones", "modificar")
+@login_required
+def agregar_modulo_ut():
+    nombre = request.form.get("nombre", "").strip()
+    tipo = request.form.get("tipo", "").strip().upper()
+    padre_raw = request.form.get("padre_id", "").strip()
+    obligatorio_todos = 1 if request.form.get("obligatorio_todos") == "on" else 0
+    if not nombre or len(nombre) > 120 or tipo not in {"SISTEMA", "MODULO", "SUBMODULO", "APK", "SERVICIO"}:
+        flash("Ingrese un nombre válido y un tipo de sistema, módulo, submódulo, APK o servicio.", "warning")
+        return _redir_modulo_ut(request.form)
+    padre_id = None
+    if padre_raw:
+        try:
+            padre_id = validar_id_formulario(padre_raw, "sistema padre")
+        except ValueError:
+            flash("El sistema padre seleccionado no es válido.", "warning")
+            return _redir_modulo_ut(request.form)
+        conn = _obtener_conexion_matriz_ut()
+        existe_padre = conn.execute(
+            "SELECT tipo FROM sistemas_modulos_ut WHERE id = ? AND activo = 1",
+            (padre_id,),
+        ).fetchone()
+        if not existe_padre:
+            conn.close()
+            flash("El sistema padre seleccionado no existe o está inactivo.", "warning")
+            return _redir_modulo_ut(request.form)
+        if existe_padre["tipo"] not in {"SISTEMA", "MODULO", "SUBMODULO"} or tipo == "SISTEMA":
+            conn.close()
+            flash("Seleccione un sistema, módulo o submódulo como padre y un tipo de elemento válido.", "warning")
+            return _redir_modulo_ut(request.form)
+    else:
+        conn = _obtener_conexion_matriz_ut()
+
+    cursor = conn.cursor()
+    duplicado = cursor.execute(
+        "SELECT 1 FROM sistemas_modulos_ut WHERE nombre = ? COLLATE NOCASE",
+        (nombre,),
+    ).fetchone()
+    if duplicado:
+        conn.close()
+        flash("Ya existe un sistema o módulo con ese nombre.", "warning")
+        return _redir_modulo_ut(request.form)
+    cursor.execute("""
+        INSERT INTO sistemas_modulos_ut (nombre, tipo, padre_id, obligatorio_todos)
+        VALUES (?, ?, ?, ?)
+    """, (nombre, tipo, padre_id, obligatorio_todos))
+    conn.commit()
+    conn.close()
+    flash("Elemento agregado al catálogo.", "success")
+    return _redir_modulo_ut(request.form)
+
+@app.route("/cargos-asignaciones/modulos/<int:modulo_id>/editar", methods=["POST"])
+@permiso_requerido("cargos_asignaciones", "modificar")
+@login_required
+def editar_modulo_ut(modulo_id):
+    nombre = request.form.get("nombre", "").strip()
+    tipo = request.form.get("tipo", "").strip().upper()
+    padre_raw = request.form.get("padre_id", "").strip()
+    obligatorio_todos = 1 if request.form.get("obligatorio_todos") == "on" else 0
+    if not nombre or len(nombre) > 120 or tipo not in {"SISTEMA", "MODULO", "SUBMODULO", "APK", "SERVICIO"}:
+        flash("Ingrese un nombre válido y un tipo de sistema, módulo, submódulo, APK o servicio.", "warning")
+        return _redir_modulo_ut(request.form)
+
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    modulo = cursor.execute(
+        "SELECT id, tipo FROM sistemas_modulos_ut WHERE id = ?",
+        (modulo_id,),
+    ).fetchone()
+    if not modulo:
+        conn.close()
+        flash("El elemento que intenta modificar ya no existe.", "warning")
+        return _redir_modulo_ut(request.form)
+    if cursor.execute(
+        "SELECT 1 FROM sistemas_modulos_ut WHERE nombre = ? COLLATE NOCASE AND id != ?",
+        (nombre, modulo_id),
+    ).fetchone():
+        conn.close()
+        flash("Ya existe otro elemento del catálogo con ese nombre.", "warning")
+        return _redir_modulo_ut(request.form)
+    if obligatorio_todos and not modulo["tipo"] == "SERVICIO" and tipo not in {"SISTEMA", "SERVICIO"}:
+        conn.close()
+        flash("Solo un sistema o servicio puede marcarse como requerido para todo el personal.", "warning")
+        return _redir_modulo_ut(request.form)
+
+    padre_id = None
+    if padre_raw:
+        try:
+            padre_id = validar_id_formulario(padre_raw, "sistema o módulo padre")
+        except ValueError:
+            conn.close()
+            flash("El sistema o módulo padre seleccionado no es válido.", "warning")
+            return _redir_modulo_ut(request.form)
+        padre = cursor.execute(
+            "SELECT tipo, activo FROM sistemas_modulos_ut WHERE id = ?",
+            (padre_id,),
+        ).fetchone()
+        if not padre or not padre["activo"] or padre["tipo"] not in {"SISTEMA", "MODULO", "SUBMODULO"}:
+            conn.close()
+            flash("El elemento padre debe ser un sistema, módulo o submódulo activo.", "warning")
+            return _redir_modulo_ut(request.form)
+        if padre_id == modulo_id or tipo == "SISTEMA":
+            conn.close()
+            flash("La jerarquía seleccionada no es válida.", "warning")
+            return _redir_modulo_ut(request.form)
+
+        ascendientes = {modulo_id}
+        actual_id = padre_id
+        while actual_id:
+            if actual_id in ascendientes:
+                conn.close()
+                flash("No se puede mover el elemento dentro de su propia jerarquía.", "warning")
+                return _redir_modulo_ut(request.form)
+            ascendientes.add(actual_id)
+            actual = cursor.execute(
+                "SELECT padre_id FROM sistemas_modulos_ut WHERE id = ?",
+                (actual_id,),
+            ).fetchone()
+            actual_id = actual["padre_id"] if actual else None
+
+    tiene_hijos = cursor.execute(
+        "SELECT 1 FROM sistemas_modulos_ut WHERE padre_id = ? LIMIT 1",
+        (modulo_id,),
+    ).fetchone()
+    if tiene_hijos and tipo not in {"SISTEMA", "MODULO", "SUBMODULO"}:
+        conn.close()
+        flash("Un elemento con módulos dependientes debe conservar el tipo Sistema, Módulo o Submódulo.", "warning")
+        return _redir_modulo_ut(request.form)
+
+    cursor.execute("""
+        UPDATE sistemas_modulos_ut
+        SET nombre = ?, tipo = ?, padre_id = ?, obligatorio_todos = ?
+        WHERE id = ?
+    """, (nombre, tipo, padre_id, obligatorio_todos, modulo_id))
+    conn.commit()
+    conn.close()
+    flash("Elemento del catálogo actualizado.", "success")
+    return _redir_modulo_ut(request.form)
+
+@app.route("/cargos-asignaciones/modulos/<int:modulo_id>/eliminar", methods=["POST"])
+@permiso_requerido("cargos_asignaciones", "modificar")
+@login_required
+def eliminar_modulo_ut(modulo_id):
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    modulo = cursor.execute(
+        "SELECT id, nombre, obligatorio_todos FROM sistemas_modulos_ut WHERE id = ?",
+        (modulo_id,),
+    ).fetchone()
+    if not modulo:
+        conn.close()
+        flash("El elemento que intenta eliminar ya no existe.", "warning")
+        return _redir_modulo_ut(request.form)
+    if modulo["obligatorio_todos"]:
+        conn.close()
+        flash("No se puede eliminar un elemento obligatorio para todo el personal. Primero edítelo para quitar la obligatoriedad si desea retirarlo.", "warning")
+        return _redir_modulo_ut(request.form)
+
+    # Obtener el elemento y todos sus descendientes recursivamente
+    ids_a_eliminar = [modulo_id]
+    por_revisar = [modulo_id]
+    while por_revisar:
+        actual_id = por_revisar.pop(0)
+        hijos = [r["id"] for r in cursor.execute("SELECT id FROM sistemas_modulos_ut WHERE padre_id = ?", (actual_id,)).fetchall()]
+        ids_a_eliminar.extend(hijos)
+        por_revisar.extend(hijos)
+
+    placeholders = ",".join("?" * len(ids_a_eliminar))
+    tiene_asignaciones = cursor.execute(f"""
+        SELECT 1 FROM accesos_perfil_cargo_ut WHERE sistema_modulo_id IN ({placeholders}) LIMIT 1
+    """, ids_a_eliminar).fetchone() or cursor.execute(f"""
+        SELECT 1 FROM modulos_solicitud_acceso_trabajador_ut WHERE sistema_modulo_id IN ({placeholders}) LIMIT 1
+    """, ids_a_eliminar).fetchone()
+
+    if tiene_asignaciones:
+        conn.close()
+        flash("Este elemento (o sus submódulos) tiene asignaciones en perfiles de cargo o historial asociado. Desactívelo para conservar los registros históricos.", "warning")
+        return _redir_modulo_ut(request.form)
+
+    # Eliminar en orden inverso (hojas primero, luego padre) para respetar integridad referencial
+    for item_id in reversed(ids_a_eliminar):
+        cursor.execute("DELETE FROM sistemas_modulos_ut WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+    flash(f"Se eliminó «{modulo['nombre']}» del catálogo.", "success")
+    return _redir_modulo_ut(request.form)
+
+@app.route("/cargos-asignaciones/modulos/<int:modulo_id>/estado", methods=["POST"])
+@permiso_requerido("cargos_asignaciones", "modificar")
+@login_required
+def cambiar_estado_modulo_ut(modulo_id):
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    modulo = cursor.execute(
+        "SELECT activo, obligatorio_todos FROM sistemas_modulos_ut WHERE id = ?",
+        (modulo_id,),
+    ).fetchone()
+    if not modulo:
+        conn.close()
+        flash("El sistema o módulo solicitado no existe.", "warning")
+        return _redir_modulo_ut(request.form)
+    if modulo["activo"] and modulo["obligatorio_todos"]:
+        conn.close()
+        flash("No se pueden desactivar los accesos requeridos para todo el personal.", "warning")
+        return _redir_modulo_ut(request.form)
+    if modulo["activo"] and cursor.execute(
+        "SELECT 1 FROM sistemas_modulos_ut WHERE padre_id = ? AND activo = 1 LIMIT 1",
+        (modulo_id,),
+    ).fetchone():
+        conn.close()
+        flash("Desactive primero los módulos y aplicativos dependientes.", "warning")
+        return _redir_modulo_ut(request.form)
+    nuevo_estado = 0 if modulo["activo"] else 1
+    cursor.execute(
+        "UPDATE sistemas_modulos_ut SET activo = ? WHERE id = ?",
+        (nuevo_estado, modulo_id),
+    )
+    conn.commit()
+    conn.close()
+    flash(
+        "Elemento del catálogo activado." if nuevo_estado else
+        "Elemento del catálogo desactivado; se conserva el historial y las asignaciones.",
+        "success",
+    )
+    return _redir_modulo_ut(request.form)
+
+@app.route("/cargos-asignaciones/perfiles/nuevo", methods=["POST"])
+@permiso_requerido("cargos_asignaciones", "modificar")
+@login_required
+def agregar_perfil_cargo_ut():
+    cargo = request.form.get("cargo", "").strip()
+    funciones = request.form.get("funciones", "").strip()
+    autorizador = request.form.get("autorizador", "").strip()
+    justificacion = request.form.get("justificacion", "").strip()
+    if not cargo or len(cargo) > 160 or not funciones or not autorizador or not justificacion:
+        flash("Complete el cargo, sus funciones, el responsable que autoriza y la justificación.", "warning")
+        return redirect(url_for("cargos_asignaciones_ut"))
+
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    duplicado = cursor.execute(
+        "SELECT 1 FROM perfiles_cargo_ut WHERE cargo = ? COLLATE NOCASE",
+        (cargo,),
+    ).fetchone()
+    if duplicado:
+        conn.close()
+        flash("Ya existe un perfil para ese cargo.", "warning")
+        return redirect(url_for("cargos_asignaciones_ut"))
+    cursor.execute("""
+        INSERT INTO perfiles_cargo_ut (cargo, funciones, autorizador)
+        VALUES (?, ?, ?)
+    """, (cargo, funciones, autorizador))
+    perfil_id = cursor.lastrowid
+    cursor.execute("""
+        INSERT INTO historial_perfiles_cargo_ut
+            (perfil_id, cargo, cambios, justificacion, autorizado_por, usuario_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        perfil_id,
+        cargo,
+        json.dumps({"perfil": "creado", "funciones": funciones}, ensure_ascii=False),
+        justificacion,
+        autorizador,
+        session.get("usuario_id"),
+    ))
+    conn.commit()
+    conn.close()
+    flash("Perfil de cargo creado. Configure y valide sus accesos requeridos.", "success")
+    return redirect(url_for("cargos_asignaciones_ut"))
+
+@app.route("/cargos-asignaciones/perfiles/<int:perfil_id>/guardar", methods=["POST"])
+@permiso_requerido("cargos_asignaciones", "modificar")
+@login_required
+def guardar_perfil_cargo_ut(perfil_id):
+    funciones = request.form.get("funciones", "").strip()
+    autorizador = request.form.get("autorizador", "").strip()
+    reportes_requeridos = request.form.get("reportes_requeridos", "").strip()
+    accion_acceso = request.form.get("accion_acceso", "").strip().upper()
+    justificacion = request.form.get("justificacion", "").strip()
+    modulo_ids = request.form.getlist("modulo_id")
+    if (
+        not funciones or len(funciones) > 2000
+        or not autorizador or len(autorizador) > 200
+        or not reportes_requeridos or len(reportes_requeridos) > 2000
+        or accion_acceso not in ACCIONES_SOLICITUD_UT
+        or not justificacion or len(justificacion) > 2000
+    ):
+        flash(
+            "Complete las funciones, reportes requeridos, acción del acceso, "
+            "responsable que autoriza y justificación.",
+            "warning",
+        )
+        return redirect(url_for("cargos_asignaciones_ut"))
+    if any(not re.fullmatch(r"[0-9]+", valor) for valor in modulo_ids):
+        flash("La selección de sistemas o módulos contiene un identificador inválido.", "warning")
+        return redirect(url_for("cargos_asignaciones_ut"))
+
+    conn = _obtener_conexion_matriz_ut()
+    cursor = conn.cursor()
+    perfil = cursor.execute(
+        "SELECT * FROM perfiles_cargo_ut WHERE id = ? AND activo = 1",
+        (perfil_id,),
+    ).fetchone()
+    if not perfil:
+        conn.close()
+        flash("El perfil seleccionado no existe o está inactivo.", "warning")
+        return redirect(url_for("cargos_asignaciones_ut"))
+
+    modulos_seleccionados = {int(valor) for valor in modulo_ids}
+    modulos_activos = {
+        row["id"]: row for row in cursor.execute("""
+            SELECT id, nombre, obligatorio_todos
+            FROM sistemas_modulos_ut
+            WHERE activo = 1
+        """).fetchall()
+    }
+    if not modulos_seleccionados.issubset(modulos_activos):
+        conn.close()
+        flash("La selección incluye un sistema o módulo inexistente o inactivo.", "warning")
+        return redirect(url_for("cargos_asignaciones_ut"))
+
+    modulos_seleccionados.update(
+        modulo_id
+        for modulo_id, modulo in modulos_activos.items()
+        if modulo["obligatorio_todos"]
+    )
+    niveles_nuevos = {}
+    for modulo_id in modulos_seleccionados:
+        predeterminado = (
+            "CUENTA" if modulos_activos[modulo_id]["obligatorio_todos"] else "LECTURA"
+        )
+        nivel = request.form.get(f"nivel_{modulo_id}", predeterminado).strip().upper()
+        if nivel not in NIVELES_ACCESO_UT:
+            conn.close()
+            flash("Uno de los niveles de acceso seleccionados no es válido.", "warning")
+            return redirect(url_for("cargos_asignaciones_ut"))
+        niveles_nuevos[modulo_id] = nivel
+
+    niveles_anteriores = {
+        row["sistema_modulo_id"]: row["nivel_acceso"]
+        for row in cursor.execute("""
+            SELECT sistema_modulo_id, nivel_acceso
+            FROM accesos_perfil_cargo_ut
+            WHERE perfil_id = ?
+        """, (perfil_id,)).fetchall()
+    }
+    cambios = []
+    for modulo_id in sorted(set(niveles_anteriores) | set(niveles_nuevos)):
+        nivel_anterior = niveles_anteriores.get(modulo_id)
+        nivel_nuevo = niveles_nuevos.get(modulo_id)
+        if nivel_anterior != nivel_nuevo:
+            modulo = modulos_activos.get(modulo_id)
+            cambios.append({
+                "modulo": modulo["nombre"] if modulo else f"ID {modulo_id}",
+                "antes": nivel_anterior,
+                "despues": nivel_nuevo,
+            })
+    if perfil["funciones"] != funciones:
+        cambios.append({"campo": "funciones", "antes": perfil["funciones"], "despues": funciones})
+    if perfil["autorizador"] != autorizador:
+        cambios.append({"campo": "autorizador", "antes": perfil["autorizador"], "despues": autorizador})
+    if perfil["reportes_requeridos"] != reportes_requeridos:
+        cambios.append({
+            "campo": "reportes_requeridos",
+            "antes": perfil["reportes_requeridos"],
+            "despues": reportes_requeridos,
+        })
+    if perfil["accion_acceso"] != accion_acceso:
+        cambios.append({
+            "campo": "accion_acceso",
+            "antes": perfil["accion_acceso"],
+            "despues": accion_acceso,
+        })
+    if not perfil["validado"]:
+        cambios.append({"campo": "perfil", "antes": "PENDIENTE", "despues": "VALIDADO"})
+    if not cambios:
+        conn.close()
+        flash("No hubo cambios en la matriz del cargo.", "info")
+        return redirect(url_for("cargos_asignaciones_ut"))
+
+    cursor.execute("""
+        UPDATE perfiles_cargo_ut
+        SET funciones = ?, autorizador = ?, reportes_requeridos = ?,
+            accion_acceso = ?, validado = 1, actualizado_el = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (funciones, autorizador, reportes_requeridos, accion_acceso, perfil_id))
+    cursor.execute("DELETE FROM accesos_perfil_cargo_ut WHERE perfil_id = ?", (perfil_id,))
+    cursor.executemany("""
+        INSERT INTO accesos_perfil_cargo_ut (perfil_id, sistema_modulo_id, nivel_acceso)
+        VALUES (?, ?, ?)
+    """, [
+        (perfil_id, modulo_id, nivel)
+        for modulo_id, nivel in sorted(niveles_nuevos.items())
+    ])
+    cursor.execute("""
+        INSERT INTO historial_perfiles_cargo_ut
+            (perfil_id, cargo, cambios, justificacion, autorizado_por, usuario_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        perfil_id,
+        perfil["cargo"],
+        json.dumps(cambios, ensure_ascii=False),
+        justificacion,
+        autorizador,
+        session.get("usuario_id"),
+    ))
+    conn.commit()
+    conn.close()
+    flash(f"Matriz de accesos del cargo «{perfil['cargo']}» guardada y validada.", "success")
+    return redirect(url_for("cargos_asignaciones_ut"))
+
+@app.route("/cargos-asignaciones/exportar-excel")
+@permiso_requerido("cargos_asignaciones", "reportar")
+@login_required
+def exportar_cargos_asignaciones_ut():
+    conn = _obtener_conexion_matriz_ut()
+    reporte = _obtener_reporte_accesos_ut(conn.cursor())
+    conn.close()
+
+    libro = openpyxl.Workbook()
+    hoja = libro.active
+    hoja.title = "Accesos requeridos UT"
+    encabezados = [
+        "NOMBRE DEL TRABAJADOR", "CARGO", "SISTEMA / MÓDULO / APK",
+        "NIVEL DE ACCESO", "ORIGEN DEL REQUERIMIENTO", "ESTADO DEL PERFIL",
+        "FUNCIONES DEL CARGO", "RESPONSABLE DEL CARGO", "ACCIÓN SOLICITADA",
+        "ESTADO DE SOLICITUD", "REPORTES REQUERIDOS", "FUNCIONES PRINCIPALES",
+        "RESPONSABLE QUE VALIDA",
+    ]
+    hoja.append(encabezados)
+    for celda in hoja[1]:
+        celda.font = Font(bold=True, color="FFFFFF")
+        celda.fill = PatternFill("solid", fgColor="17365D")
+        celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for trabajador in reporte:
+        if trabajador["accesos"]:
+            for acceso in trabajador["accesos"]:
+                hoja.append([
+                    trabajador["nombre"], trabajador["cargo"], acceso["ruta"],
+                    acceso["nivel_nombre"], "General o perfil del cargo",
+                    trabajador["estado_perfil"], trabajador["funciones"],
+                    trabajador["autorizador"], "", "", "", "", "",
+                ])
+        solicitud = trabajador["solicitud"]
+        if solicitud:
+            for modulo in solicitud["modulos"]:
+                hoja.append([
+                    trabajador["nombre"], trabajador["cargo"], modulo["ruta"],
+                    modulo["nivel_nombre"], "Matriz validada por cargo",
+                    trabajador["estado_perfil"], trabajador["funciones"],
+                    trabajador["autorizador"], solicitud["accion_nombre"],
+                    solicitud["estado"], solicitud["reportes_requeridos"],
+                    solicitud["funciones"], solicitud["autorizador"],
+                ])
+        elif not trabajador["accesos"]:
+            hoja.append([
+                trabajador["nombre"], trabajador["cargo"], "Sin sistemas asociados",
+                "", "", trabajador["estado_perfil"], trabajador["funciones"],
+                trabajador["autorizador"], "", "", "", "", "",
+            ])
+    for fila in hoja.iter_rows(min_row=2):
+        for celda in fila:
+            celda.data_type = "s"
+            celda.alignment = Alignment(vertical="top", wrap_text=True)
+    hoja.freeze_panes = "A2"
+    hoja.auto_filter.ref = hoja.dimensions
+    for columna, ancho in {
+        "A": 34, "B": 28, "C": 48, "D": 22, "E": 26, "F": 26,
+        "G": 55, "H": 32, "I": 20, "J": 24, "K": 48, "L": 55, "M": 32,
+    }.items():
+        hoja.column_dimensions[columna].width = ancho
+
+    buffer = BytesIO()
+    libro.save(buffer)
+    buffer.seek(0)
+    nombre = f"Accesos_Requeridos_UT_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=nombre,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 @app.route("/favicon.ico")
 def favicon():
@@ -625,7 +2024,12 @@ def ver_usuarios():
 @app.route("/usuarios/nuevo", methods=["POST"])
 @admin_required
 def nuevo_usuario():
-    trabajador_id = request.form.get("trabajador_id", type=int)
+    try:
+        trabajador_id = validar_id_formulario(
+            request.form.get("trabajador_id"), "trabajador"
+        )
+    except ValueError:
+        trabajador_id = None
     rol_input = request.form.get("rol", "USUARIO").strip().upper()
     permisos = permisos_desde_formulario(request.form)
     if not any(valor.startswith("actividades:") for valor in request.form.getlist("permiso")):
@@ -665,7 +2069,11 @@ def nuevo_usuario():
 @app.route("/usuarios/editar", methods=["POST"])
 @admin_required
 def editar_usuario():
-    user_id = request.form["usuario_id"]
+    try:
+        user_id = validar_id_formulario(request.form.get("usuario_id"), "usuario")
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_usuarios"))
     nombre_input = request.form["nombre_completo"].strip()
     pass_input = request.form.get("password", "").strip()
     rol_input = request.form.get("rol", "USUARIO").strip().upper()
@@ -729,6 +2137,16 @@ def inicio():
     total_documentos = cursor.execute(f"SELECT COUNT(*) FROM documentos_registrados WHERE {propietario_sql}", propietario_params).fetchone()[0]
     tareas_pendientes = cursor.execute(f"SELECT COUNT(*) FROM actividades_soporte WHERE estado != 'COMPLETADA' AND {propietario_sql}", propietario_params).fetchone()[0]
     tareas_hoy = cursor.execute(f"SELECT COUNT(*) FROM actividades_soporte WHERE fecha_programada = CURRENT_DATE AND {propietario_sql}", propietario_params).fetchone()[0]
+    hoy_iso = date.today().isoformat()
+    tokens_vigentes = cursor.execute("""
+        SELECT COUNT(*) FROM certificados_digitales
+        WHERE estado = 'VIGENTE' AND fecha_inicio <= ? AND fecha_caducidad >= ?
+    """, (hoy_iso, hoy_iso)).fetchone()[0]
+    fecha_limite_tokens = (date.today() + timedelta(days=DIAS_ALERTA_CERTIFICADO)).isoformat()
+    tokens_por_vencer = cursor.execute("""
+        SELECT COUNT(*) FROM certificados_digitales
+        WHERE estado = 'VIGENTE' AND fecha_caducidad <= ?
+    """, (fecha_limite_tokens,)).fetchone()[0]
     conn.close()
 
     return render_template("inicio.html", 
@@ -741,6 +2159,8 @@ def inicio():
                            total_personal=total_personal,
                            tareas_pendientes=tareas_pendientes,
                            tareas_hoy=tareas_hoy,
+                           tokens_vigentes=tokens_vigentes,
+                           tokens_por_vencer=tokens_por_vencer,
                            total_documentos=total_documentos)
 
 # ================= BIBLIOTECA VIRTUAL PAE UT APURIMAC =================
@@ -774,11 +2194,18 @@ def nuevo_registro_biblioteca():
     if not evento or not link:
         flash("El nombre del evento y el link son obligatorios.", "warning")
         return redirect(url_for("ver_biblioteca"))
+    try:
+        fecha_publicacion = validar_fecha_formulario(
+            request.form.get("fecha_publicacion"), "la fecha de publicación"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_biblioteca"))
     conn = get_biblioteca_db()
     conn.execute("""
         INSERT INTO biblioteca_pae (fecha_publicacion, nombre_evento, link, observaciones)
         VALUES (?, ?, ?, ?)
-    """, (request.form.get("fecha_publicacion", "").strip(), evento, link,
+    """, (fecha_publicacion, evento, link,
           request.form.get("observaciones", "").strip()))
     conn.commit()
     conn.close()
@@ -815,13 +2242,16 @@ def convertir_fecha_biblioteca(valor):
         return valor.strftime("%Y-%m-%d")
     if isinstance(valor, (int, float)):
         try:
-            return openpyxl.utils.datetime.from_ISO8601(str(valor)).strftime("%Y-%m-%d")
-        except Exception:
-            try:
-                return openpyxl.utils.datetime.from_excel(valor).strftime("%Y-%m-%d")
-            except Exception:
-                pass
-    return str(valor).strip()
+            return openpyxl.utils.datetime.from_excel(valor).date().isoformat()
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError("La fecha de publicación del Excel no es válida.") from error
+    texto = str(valor).strip()
+    for formato in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(texto, formato).date().isoformat()
+        except ValueError:
+            continue
+    raise ValueError("La fecha de publicación del Excel no es válida.")
 
 def importar_registros_biblioteca(ruta_archivo):
     libro = openpyxl.load_workbook(ruta_archivo, read_only=True, data_only=True)
@@ -866,7 +2296,13 @@ def importar_registros_biblioteca(ruta_archivo):
         if not evento or not link:
             omitidos += 1
             continue
-        fecha = convertir_fecha_biblioteca(valores[indice_fecha] if indice_fecha is not None and indice_fecha < len(valores) else "")
+        try:
+            fecha = convertir_fecha_biblioteca(
+                valores[indice_fecha] if indice_fecha is not None and indice_fecha < len(valores) else ""
+            )
+        except ValueError:
+            omitidos += 1
+            continue
         observaciones = str(valores[indice_observaciones] or "").strip() if indice_observaciones is not None and indice_observaciones < len(valores) else ""
         existente = conn.execute("SELECT id FROM biblioteca_pae WHERE nombre_evento = ? AND link = ?", (evento, link)).fetchone()
         if existente:
@@ -942,6 +2378,12 @@ def ver_sgd():
         ORDER BY id DESC
     """, (tipo,)).fetchall()
 
+    configuracion_umbral = cursor.execute(
+        "SELECT valor FROM configuraciones_sistema WHERE clave = ?",
+        ("sgd_umbral_antiguedad_dias",)
+    ).fetchone()
+    umbral_dias = int(configuracion_umbral["valor"]) if configuracion_umbral else 100
+
     resultado = None
     corte_activo = None
     ahora = datetime.now()
@@ -960,9 +2402,14 @@ def ver_sgd():
                 resultado_original = json.loads(corte_db["datos_json"])
                 ocultos = json.loads(corte_db["destinatarios_ocultos"] or "[]")
                 resultado = aplicar_destinatarios_ocultos(resultado_original, ocultos)
+                resultado = aplicar_umbral_antiguedad(
+                    resultado, corte_db["fecha_corte"], umbral_dias
+                )
                 resultado["destinatarios_ocultos"] = ocultos
                 fecha_corte_defecto = corte_db["fecha_corte"]
-            except Exception:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                app.logger.exception("No se pudo analizar el corte SGD %s.", corte_db["id"])
+                flash("No se pudo analizar este corte del Monitor SGD. Revise el archivo del corte o contacte al administrador.", "danger")
                 resultado = None
 
     conn.close()
@@ -972,8 +2419,37 @@ def ver_sgd():
                            cortes_historial=cortes_historial,
                            corte_activo=corte_activo,
                            resultado=resultado,
+                           umbral_dias=umbral_dias,
+                           puede_modificar_sgd=usuario_tiene_permiso("sgd", "modificar"),
                            fecha_corte=fecha_corte_defecto,
                            fecha_corte_input=fecha_corte_input)
+
+@app.route("/sgd/configurar-antiguedad", methods=["POST"])
+@permiso_requerido("sgd", "modificar")
+@login_required
+def configurar_umbral_antiguedad_sgd():
+    umbral_dias = request.form.get("umbral_dias", type=int)
+    tipo = request.form.get("tipo", "NO_LEIDOS").upper()
+    if tipo not in ["NO_LEIDOS", "RECIBIDOS"]:
+        tipo = "NO_LEIDOS"
+    corte_id = request.form.get("corte_id", type=int)
+
+    if umbral_dias is None or not 1 <= umbral_dias <= 3650:
+        flash("El rango debe ser un número entero entre 1 y 3650 días.", "warning")
+        return redirect(f"/sgd?tipo={tipo}" + (f"&corte_id={corte_id}" if corte_id else ""))
+
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO configuraciones_sistema (clave, valor)
+        VALUES (?, ?)
+        ON CONFLICT(clave) DO UPDATE
+        SET valor = excluded.valor, actualizado_el = CURRENT_TIMESTAMP
+    """, ("sgd_umbral_antiguedad_dias", str(umbral_dias)))
+    conn.commit()
+    conn.close()
+
+    flash(f"El rango de antigüedad del Monitor SGD se actualizó a {umbral_dias} días.", "success")
+    return redirect(f"/sgd?tipo={tipo}" + (f"&corte_id={corte_id}" if corte_id else ""))
 
 @app.route("/sgd/procesar/<tipo>", methods=["POST"])
 @permiso_requerido("sgd", "modificar")
@@ -1141,20 +2617,41 @@ def eliminar_documento(doc_id):
 @permiso_requerido("documentaria", "modificar")
 @login_required
 def generar_informe_tdr_docx():
-    num_carta = request.form.get("numero_carta", type=int) or 9
-    num_informe = request.form.get("numero_informe", type=int) or 9
-    fecha_emision = request.form.get("fecha_emision", date.today().strftime("%Y-%m-%d"))
+    num_carta_raw = request.form.get("numero_carta", "").strip()
+    num_informe_raw = request.form.get("numero_informe", "").strip()
     num_os = request.form.get("numero_os", "0005612").strip()
     periodo_desde = request.form.get("periodo_desde", "")
     periodo_hasta = request.form.get("periodo_hasta", "")
     guardar_en_bd = request.form.get("guardar_en_bd") == "1"
 
-    anio = datetime.now().year
-    if fecha_emision and len(fecha_emision) >= 4:
-        try:
-            anio = int(fecha_emision[:4])
-        except Exception:
-            pass
+    try:
+        fecha_emision = validar_fecha_formulario(
+            request.form.get("fecha_emision", date.today().isoformat()),
+            "la fecha de emisión",
+            obligatoria=True,
+        )
+        periodo_desde, periodo_hasta = validar_rango_fechas(
+            periodo_desde, periodo_hasta, "periodo"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("gestion_documentaria"))
+    if num_os and not re.fullmatch(r"[0-9]{1,20}", num_os):
+        flash("El número de orden de servicio debe contener solo números.", "warning")
+        return redirect(url_for("gestion_documentaria"))
+    if any(
+        valor and not re.fullmatch(r"[0-9]{1,9}", valor)
+        for valor in (num_carta_raw, num_informe_raw)
+    ):
+        flash("Los números de carta e informe deben ser enteros positivos.", "warning")
+        return redirect(url_for("gestion_documentaria"))
+    num_carta = int(num_carta_raw) if num_carta_raw else 9
+    num_informe = int(num_informe_raw) if num_informe_raw else 9
+
+    if num_carta <= 0 or num_informe <= 0:
+        flash("Los números de carta e informe deben ser enteros positivos.", "warning")
+        return redirect(url_for("gestion_documentaria"))
+    anio = date.fromisoformat(fecha_emision).year
 
     ruta_plantilla = os.path.join("plantillas", "modelo.docx")
     if not os.path.exists(ruta_plantilla):
@@ -1615,7 +3112,15 @@ def guardar_documento():
     descripcion = request.form.get("descripcion", "").strip()
     remitente = request.form.get("remitente", "").strip()
     destinatario = request.form.get("destinatario", "").strip()
-    fecha_emision = request.form.get("fecha_emision") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        fecha_emision = validar_fecha_formulario(
+            request.form.get("fecha_emision") or date.today().isoformat(),
+            "la fecha de emisión",
+            obligatoria=True,
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("gestion_documentaria"))
     requerimiento = request.form.get("requerimiento", "").strip()
     uso_documento = request.form.get("uso_documento", "").strip()
     texto_manual = request.form.get("contenido_texto", "").strip()
@@ -1834,6 +3339,7 @@ def ver_actividades():
     filtro_cat = request.args.get("categoria", "TODAS")
     filtro_periodo = request.args.get("periodo", "TODOS")
     actividad_nueva_id = request.args.get("nueva", type=int)
+    mostrar_tareas_vencidas = session.pop("abrir_tareas_vencidas", False)
     conn = get_db()
     ensure_apowerrec_schema(conn)
     cursor = conn.cursor()
@@ -1883,6 +3389,7 @@ def ver_actividades():
         detalles_enc = urllib.parse.quote(f"Área: {item['area_solicitante'] or 'UTI'}\\nCategoría: {item['categoria']}\\nPrioridad: {item['prioridad']}\\n\\nDescripción:\\n{item['descripcion'] or ''}")
         
         item["google_calendar_url"] = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={titulo_enc}&dates={start_iso}/{end_iso}&details={detalles_enc}&location=UTI%20-%20UT%20Apurimac"
+        item["codigo_control"] = codigo_control_actividad(item["id"])
         actividades.append(item)
 
     trabajadores = cursor.execute("""
@@ -1895,7 +3402,7 @@ def ver_actividades():
         SELECT * FROM actividades_soporte
         WHERE {propietario_sql}
           AND fecha_programada < ?
-          AND estado IN ('PENDIENTE', 'EN PROGRESO')
+          AND estado = 'PENDIENTE'
         ORDER BY fecha_programada ASC, hora_inicio ASC, id ASC
     """, (*propietario_params, hoy_dt.isoformat())).fetchall()
 
@@ -1917,6 +3424,7 @@ def ver_actividades():
                            filtro_cat=filtro_cat,
                            filtro_periodo=filtro_periodo,
                            actividad_nueva_id=actividad_nueva_id,
+                           mostrar_tareas_vencidas=mostrar_tareas_vencidas,
                            total_pendientes=total_pendientes,
                            total_proceso=total_proceso,
                            total_completadas=total_completadas,
@@ -1929,20 +3437,46 @@ def ver_actividades():
 @permiso_requerido("actividades", "modificar")
 @login_required
 def nueva_actividad():
-    titulo = request.form["titulo"].strip()
+    titulo = request.form.get("titulo", "").strip()
     descripcion = request.form.get("descripcion", "").strip()
     categoria = request.form.get("categoria", "SOPORTE TECNICO").strip()
     area = request.form.get("area_solicitante", "").strip()
     prioridad = request.form.get("prioridad", "MEDIA").strip()
     estado = request.form.get("estado", "PENDIENTE").strip()
-    fecha_prog = request.form.get("fecha_programada") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        validar_campos_actividad(titulo, descripcion, categoria, area, prioridad, estado)
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
+    try:
+        fecha_prog = validar_fecha_formulario(
+            request.form.get("fecha_programada") or date.today().isoformat(),
+            "la fecha programada",
+            obligatoria=True,
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
     h_inicio = request.form.get("hora_inicio", "").strip()
     h_fin = request.form.get("hora_fin", "").strip()
+    try:
+        whatsapp_telefono = validar_numero_contacto(
+            request.form.get("whatsapp_telefono"), "El número de WhatsApp"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
 
     if not h_inicio:
         h_inicio = datetime.now().strftime("%H:%M")
     if not h_fin:
         h_fin = (datetime.now() + timedelta(hours=1)).strftime("%H:%M")
+    try:
+        h_inicio = validar_hora_formulario(h_inicio, "La hora de inicio")
+        h_fin = validar_hora_formulario(h_fin, "La hora de fin")
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
 
     conn = get_db()
     cursor = conn.cursor()
@@ -1950,9 +3484,10 @@ def nueva_actividad():
     cursor.execute("""
         INSERT INTO actividades_soporte (
             titulo, descripcion, categoria, area_solicitante, prioridad, estado,
-            fecha_programada, hora_inicio, hora_fin, usuario_id, estado_iniciado_el
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            fecha_programada, hora_inicio, hora_fin, whatsapp_telefono, usuario_id, estado_iniciado_el
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (titulo, descripcion, categoria, area, prioridad, estado, fecha_prog, h_inicio, h_fin,
+          whatsapp_telefono,
           session.get("usuario_id"), estado_iniciado_el))
     actividad_id = cursor.lastrowid
     conn.commit()
@@ -1965,24 +3500,59 @@ def nueva_actividad():
 @permiso_requerido("actividades", "modificar")
 @login_required
 def editar_actividad():
-    actividad_id = request.form["actividad_id"]
-    titulo = request.form["titulo"].strip()
+    try:
+        actividad_id = validar_id_formulario(
+            request.form.get("actividad_id"), "actividad"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
+    titulo = request.form.get("titulo", "").strip()
     descripcion = request.form.get("descripcion", "").strip()
     categoria = request.form.get("categoria", "SOPORTE TECNICO").strip()
     area = request.form.get("area_solicitante", "").strip()
     prioridad = request.form.get("prioridad", "MEDIA").strip()
     estado = request.form.get("estado", "PENDIENTE").strip()
-    fecha_prog = request.form.get("fecha_programada") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        validar_campos_actividad(titulo, descripcion, categoria, area, prioridad, estado)
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
+    try:
+        fecha_prog = validar_fecha_formulario(
+            request.form.get("fecha_programada") or date.today().isoformat(),
+            "la fecha programada",
+            obligatoria=True,
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
     h_inicio = request.form.get("hora_inicio", "").strip()
     h_fin = request.form.get("hora_fin", "").strip()
     solucion = request.form.get("solucion_aplicada", "").strip()
+    try:
+        whatsapp_telefono = validar_numero_contacto(
+            request.form.get("whatsapp_telefono"), "El número de WhatsApp"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
+    if len(solucion) > 5000:
+        flash("La solución aplicada no puede superar los 5000 caracteres.", "warning")
+        return redirect(url_for("ver_actividades"))
+    try:
+        h_inicio = validar_hora_formulario(h_inicio, "La hora de inicio")
+        h_fin = validar_hora_formulario(h_fin, "La hora de fin")
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
 
     conn = get_db()
     propietario_sql, propietario_params = filtro_propietario()
     conn.cursor().execute(f"""
         UPDATE actividades_soporte 
         SET titulo = ?, descripcion = ?, categoria = ?, area_solicitante = ?, prioridad = ?,
-            estado = ?, fecha_programada = ?, hora_inicio = ?, hora_fin = ?, solucion_aplicada = ?,
+            estado = ?, fecha_programada = ?, hora_inicio = ?, hora_fin = ?, whatsapp_telefono = ?, solucion_aplicada = ?,
             estado_iniciado_el = CASE
                 WHEN estado = 'EN PROGRESO' AND estado_iniciado_el IS NOT NULL THEN estado_iniciado_el
                 WHEN ? = 'EN PROGRESO' THEN ?
@@ -1990,6 +3560,7 @@ def editar_actividad():
             END
         WHERE id = ? AND {propietario_sql}
     """, (titulo, descripcion, categoria, area, prioridad, estado, fecha_prog, h_inicio, h_fin,
+          whatsapp_telefono,
           solucion, estado, time.time(), actividad_id, *propietario_params))
     conn.commit()
     conn.close()
@@ -2004,7 +3575,8 @@ def cambiar_estado_actividad(actividad_id, nuevo_estado):
     if nuevo_estado in ["PENDIENTE", "EN PROGRESO", "COMPLETADA"]:
         conn = get_db()
         propietario_sql, propietario_params = filtro_propietario()
-        conn.cursor().execute(f"""
+        cursor = conn.cursor()
+        cursor.execute(f"""
             UPDATE actividades_soporte
             SET estado = ?,
                 estado_iniciado_el = CASE
@@ -2017,16 +3589,32 @@ def cambiar_estado_actividad(actividad_id, nuevo_estado):
                 END
             WHERE id = ? AND {propietario_sql}
         """, (nuevo_estado, nuevo_estado, time.time(), actividad_id, *propietario_params))
+        actualizado = cursor.rowcount > 0
         conn.commit()
         conn.close()
-        flash(f"Estado de la actividad cambiado a {nuevo_estado}.", "info")
+        if actualizado:
+            session["abrir_tareas_vencidas"] = True
+            if nuevo_estado == "PENDIENTE":
+                flash("La tarea se mantiene como PENDIENTE porque no se completó; seguirá en TAREAS NO REALIZADAS.", "warning")
+            else:
+                flash(f"La tarea se marcó correctamente como {nuevo_estado}.", "success")
+        else:
+            flash("No se encontró la tarea o no tienes permiso para modificarla.", "danger")
+    else:
+        flash("El estado solicitado no es válido.", "danger")
     return redirect(request.referrer or url_for("ver_actividades"))
 
 @app.route("/actividades/acciones-realizadas", methods=["POST"])
 @permiso_requerido("actividades", "modificar")
 @login_required
 def guardar_acciones_realizadas():
-    actividad_id = request.form["actividad_id"]
+    try:
+        actividad_id = validar_id_formulario(
+            request.form.get("actividad_id"), "actividad"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_actividades"))
     acciones = request.form.get("solucion_aplicada", "").strip()
 
     if not acciones:
@@ -2077,10 +3665,11 @@ def api_actividades_calendario():
         f_prog = f["fecha_programada"] or datetime.now().strftime("%Y-%m-%d")
         h_ini = f["hora_inicio"] or "08:00"
         h_fin = f["hora_fin"] or "09:00"
+        codigo_control = codigo_control_actividad(f["id"])
         
         eventos.append({
             "id": f["id"],
-            "title": f"[{f['categoria']}] {f['titulo']}",
+            "title": f"[{codigo_control}] [{f['categoria']}] {f['titulo']}",
             "start": f"{f_prog}T{h_ini}:00",
             "end": f"{f_prog}T{h_fin}:00",
             "backgroundColor": colores.get(f["estado"], "#0d6efd"),
@@ -2092,6 +3681,38 @@ def api_actividades_calendario():
         })
     return jsonify(eventos)
 
+@app.route("/api/actividades-alertas")
+@permiso_requerido("actividades", "ver")
+@login_required
+def api_actividades_alertas():
+    ahora = datetime.now()
+    limite = ahora + timedelta(minutes=5)
+    propietario_sql, propietario_params = filtro_propietario()
+    conn = get_db()
+    filas = conn.cursor().execute(f"""
+        SELECT id, titulo, area_solicitante, fecha_programada, hora_inicio, whatsapp_telefono
+        FROM actividades_soporte
+        WHERE {propietario_sql}
+          AND estado IN ('PENDIENTE', 'EN PROGRESO')
+          AND fecha_programada IS NOT NULL AND fecha_programada != ''
+          AND hora_inicio IS NOT NULL AND hora_inicio != ''
+          AND datetime(fecha_programada || ' ' || hora_inicio) BETWEEN datetime(?) AND datetime(?)
+        ORDER BY fecha_programada, hora_inicio, id
+    """, (*propietario_params, ahora.isoformat(sep=" ", timespec="seconds"),
+          limite.isoformat(sep=" ", timespec="seconds"))).fetchall()
+    conn.close()
+    return jsonify([
+        {
+            "id": fila["id"],
+            "titulo": fila["titulo"],
+            "area_solicitante": fila["area_solicitante"] or "",
+            "fecha_programada": fila["fecha_programada"],
+            "hora_inicio": fila["hora_inicio"],
+            "whatsapp_telefono": fila["whatsapp_telefono"] or "",
+        }
+        for fila in filas
+    ])
+
 @app.route("/actividades/exportar-excel")
 @permiso_requerido("actividades", "reportar")
 @login_required
@@ -2100,7 +3721,7 @@ def exportar_actividades_excel():
     cursor = conn.cursor()
     propietario_sql, propietario_params = filtro_propietario()
     filas = cursor.execute(f"""
-        SELECT fecha_programada, hora_inicio, hora_fin, area_solicitante, categoria, 
+        SELECT id, fecha_programada, hora_inicio, hora_fin, area_solicitante, categoria,
                titulo, descripcion, prioridad, estado, solucion_aplicada
         FROM actividades_soporte
         WHERE {propietario_sql}
@@ -2113,7 +3734,7 @@ def exportar_actividades_excel():
     ws.title = "Bitácora de Soporte TI"
 
     headers = [
-        "FECHA", "HORA INICIO", "HORA FIN", "ÁREA SOLICITANTE", "CATEGORÍA",
+        "ID DE CONTROL", "FECHA", "HORA INICIO", "HORA FIN", "ÁREA SOLICITANTE", "CATEGORÍA",
         "ACTIVIDAD / TAREA", "DETALLE / DESCRIPCIÓN", "PRIORIDAD", "ESTADO", "SOLUCIÓN APLICADA / REPORTE"
     ]
     ws.append(headers)
@@ -2136,9 +3757,10 @@ def exportar_actividades_excel():
 
     ws.row_dimensions.height = 28
 
-    cols_centradas = (1, 2, 3, 8, 9)
+    cols_centradas = (1, 2, 3, 4, 5, 9, 10)
     for r_idx, f in enumerate(filas, start=2):
         row_data = [
+            codigo_control_actividad(f["id"]),
             sanitizar_texto_excel(formatear_solo_fecha(f["fecha_programada"])),
             sanitizar_texto_excel(f["hora_inicio"]),
             sanitizar_texto_excel(f["hora_fin"]),
@@ -2204,6 +3826,8 @@ def exportar_actividades_docx():
     conn.close()
 
     actividades_lista = [dict(f) for f in filas]
+    for actividad in actividades_lista:
+        actividad["codigo_control"] = codigo_control_actividad(actividad["id"])
 
     nombre_descarga = f"Reporte_Actividades_TI_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
     ruta_salida = os.path.join(ACTAS_FOLDER, nombre_descarga)
@@ -2226,6 +3850,55 @@ def exportar_actividades_docx():
     except Exception as e:
         flash(f"Error al generar el reporte Word de actividades: {e}", "danger")
         return redirect(url_for("ver_actividades"))
+
+# ================= API PARA FRONTEND MODERNO =================
+@app.route("/api/prestamos/resumen")
+@login_required
+def api_prestamos_resumen():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    categorias = ["MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO"]
+    resumen = {}
+
+    for cat in categorias:
+        row = cursor.execute(
+            "SELECT COUNT(*) AS total, SUM(CASE WHEN estado='EN PRESTAMO' THEN 1 ELSE 0 END) AS prestados FROM equipos WHERE categoria=?",
+            (cat,)
+        ).fetchone()
+        resumen[cat] = {
+            "total": row[0] or 0,
+            "prestados": row[1] or 0,
+            "almacen": (row[0] or 0) - (row[1] or 0)
+        }
+
+    conn.close()
+    return jsonify(resumen)
+
+@app.route("/api/prestamos/<categoria>")
+@login_required
+def api_prestamos_categoria(categoria):
+    cat = categoria.upper()
+    if cat not in ["MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO"]:
+        return jsonify({"error": "Categoría no válida"}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    query = """
+    SELECT
+        e.id, e.codigo_margesi, e.descripcion, e.estado,
+        p.id AS prestamo_id, t.nombres || ' ' || t.apellido_paterno AS custodio
+    FROM equipos e
+    LEFT JOIN prestamos p ON e.id = p.equipo_id AND p.estado = 'ACTIVO'
+    LEFT JOIN trabajadores t ON p.trabajador_id = t.id
+    WHERE e.categoria = ?
+    ORDER BY CASE WHEN e.estado = 'EN PRESTAMO' THEN 0 ELSE 1 END, e.codigo_margesi ASC
+    """
+    equipos = cursor.execute(query, (cat,)).fetchall()
+    conn.close()
+
+    return jsonify([dict(row) for row in equipos])
 
 # ================= HUB DE PRÉSTAMOS =================
 @app.route("/prestamos")
@@ -2343,6 +4016,28 @@ def api_buscar_equipo_codigo(codigo):
         "prestamo_id": equipo["prestamo_id"]
     })
 
+
+@app.route("/api/equipos/verificar-codigo")
+@login_required
+def api_verificar_codigo_equipo():
+    codigo = request.args.get("codigo", "").strip()
+    if not codigo:
+        return jsonify({"existe": False})
+
+    conn = get_db()
+    equipo = buscar_equipo_por_codigo(conn.cursor(), codigo)
+    conn.close()
+    if not equipo:
+        return jsonify({"existe": False})
+
+    return jsonify({
+        "existe": True,
+        "codigo": equipo["codigo_margesi"] or equipo["codigo_interno"],
+        "categoria": equipo["categoria"],
+        "descripcion": equipo["descripcion"] or "",
+    })
+
+
 @app.route("/api/historial-equipo/<int:equipo_id>")
 @login_required
 def api_historial_equipo(equipo_id):
@@ -2410,15 +4105,38 @@ def registrar_equipo():
     if request.method == "GET":
         return redirect(url_for("prestamos_hub"))
 
-    cat = request.form["categoria"].strip().upper()
-    cod = request.form["codigo_margesi"].strip()
-    desc = request.form["descripcion"].strip()
+    cat = request.form.get("categoria", "").strip().upper()
+    cod = request.form.get("codigo_margesi", "").strip()
+    desc = request.form.get("descripcion", "").strip()
     serie = request.form.get("serie_medidas", "").strip()
-    celular_institucional = request.form.get("celular_institucional", "").strip()
+    try:
+        celular_institucional = validar_numero_contacto(
+            request.form.get("celular_institucional"), "El celular institucional"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
+    if cat not in {"MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO"}:
+        flash("La categoría seleccionada no es válida.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
+    if not cod or not desc:
+        flash("El código y la descripción del bien son obligatorios.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("BEGIN IMMEDIATE")
+    equipo_duplicado = buscar_equipo_por_codigo(cursor, cod)
+    if equipo_duplicado:
+        codigo_existente = equipo_duplicado["codigo_margesi"] or equipo_duplicado["codigo_interno"]
+        conn.close()
+        flash(
+            f"El código Margesí {cod} ya está registrado "
+            f"(equipo {codigo_existente}). No se puede registrar dos veces.",
+            "danger",
+        )
+        return redirect(f"/prestamos/{cat.lower()}")
+
     equipo_con_imei = (
         buscar_movil_con_imei(cursor, serie, codigo=cod)
         if cat == "MOVILES" else None
@@ -2478,11 +4196,28 @@ def editar_equipo():
     if request.method == "GET":
         return redirect(url_for("prestamos_hub"))
 
-    equipo_id = request.form["equipo_id"]
+    try:
+        equipo_id = validar_id_formulario(request.form.get("equipo_id"), "bien")
+    except ValueError:
+        flash("El identificador del bien no es válido.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
     cat = request.form.get("categoria", "INFORMATICOS").strip().upper()
-    cod = request.form["codigo_margesi"].strip()
-    desc = request.form["descripcion"].strip()
+    cod = request.form.get("codigo_margesi", "").strip()
+    desc = request.form.get("descripcion", "").strip()
     serie = request.form.get("serie_medidas", "").strip()
+    try:
+        celular_institucional = validar_numero_contacto(
+            request.form.get("celular_institucional"), "El celular institucional"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
+    if cat not in {"MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO"}:
+        flash("La categoría seleccionada no es válida.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
+    if not cod or not desc:
+        flash("El código y la descripción del bien son obligatorios.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
 
     conn = get_db()
     cursor = conn.cursor()
@@ -2493,7 +4228,17 @@ def editar_equipo():
         LEFT JOIN prestamos p ON p.equipo_id = e.id AND p.estado = 'ACTIVO'
         WHERE e.id = ?
     """, (equipo_id,)).fetchone()
-    celular_institucional = request.form.get("celular_institucional", "").strip()
+    equipo_duplicado = buscar_equipo_por_codigo(cursor, cod, equipo_id)
+    if equipo_duplicado:
+        codigo_existente = equipo_duplicado["codigo_margesi"] or equipo_duplicado["codigo_interno"]
+        conn.close()
+        flash(
+            f"El código Margesí {cod} ya está registrado "
+            f"(equipo {codigo_existente}). No se guardaron los cambios.",
+            "danger",
+        )
+        return redirect(f"/prestamos/{cat.lower()}")
+
     if equipo_actual and equipo_actual["categoria"] == "MOVILES":
         equipo_con_imei = buscar_movil_con_imei(cursor, serie, equipo_id, codigo=cod)
         if equipo_con_imei:
@@ -2590,6 +4335,13 @@ def eliminar_equipo(equipo_id):
 def subir_equipos_excel():
     archivo = request.files.get("archivo_equipos")
     categoria_forzada = request.form.get("categoria_forzada", None)
+    if categoria_forzada and categoria_forzada.strip().upper() not in {
+        "MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO",
+    }:
+        flash("La categoría indicada para importar no es válida.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
+    if categoria_forzada:
+        categoria_forzada = categoria_forzada.strip().upper()
     if archivo and archivo.filename.endswith((".xlsx", ".xls")):
         ruta = os.path.join(UPLOAD_FOLDER, "margesi_equipos.xlsx")
         archivo.save(ruta)
@@ -2604,12 +4356,17 @@ def subir_equipos_excel():
 @permiso_requerido("prestamos", "modificar")
 @login_required
 def prestar_equipo():
-    equipo_id = request.form.get("equipo_id", "").strip()
-    trabajador_id = request.form.get("trabajador_id", "").strip()
+    equipo_id_raw = request.form.get("equipo_id", "").strip()
+    trabajador_id_raw = request.form.get("trabajador_id", "").strip()
     observaciones = request.form.get("observaciones_entrega", request.form.get("observaciones", "")).strip()
 
-    if not equipo_id or not trabajador_id:
+    if not re.fullmatch(r"[0-9]+", equipo_id_raw) or not re.fullmatch(r"[0-9]+", trabajador_id_raw):
         flash("Debe seleccionar el bien y el trabajador antes de confirmar el préstamo.", "warning")
+        return redirect(request.referrer or url_for("prestamos_hub"))
+    equipo_id = int(equipo_id_raw)
+    trabajador_id = int(trabajador_id_raw)
+    if equipo_id <= 0 or trabajador_id <= 0:
+        flash("El bien o el trabajador seleccionado no es válido.", "warning")
         return redirect(request.referrer or url_for("prestamos_hub"))
 
     conn = get_db()
@@ -2631,6 +4388,17 @@ def prestar_equipo():
 
     celular_equipo = (eq["celular_institucional"] or "").strip()
     if eq["categoria"] == "MOVILES" and celular_equipo:
+        try:
+            celular_equipo = validar_numero_contacto(
+                celular_equipo, "El celular institucional del bien"
+            )
+        except ValueError as error:
+            conn.close()
+            flash(
+                f"{error} Corrija el número del bien antes de asignarlo.",
+                "danger",
+            )
+            return redirect(request.referrer or url_for("prestamos_hub"))
         trabajador_con_celular = buscar_trabajador_con_celular(
             cursor, celular_equipo, trabajador_id
         )
@@ -2732,18 +4500,19 @@ def devolver_equipo():
     prestamo_id = request.form.get("prestamo_id", "").strip()
     if not prestamo_id:
         equipo_id = request.form.get("equipo_id", "").strip()
-        if equipo_id:
+        if re.fullmatch(r"[0-9]+", equipo_id) and int(equipo_id) > 0:
             conn = get_db()
             prestamo = conn.execute(
                 "SELECT id FROM prestamos WHERE equipo_id = ? AND estado = 'ACTIVO'",
-                (equipo_id,)
+                (int(equipo_id),)
             ).fetchone()
             conn.close()
             prestamo_id = str(prestamo["id"]) if prestamo else ""
 
-    if not prestamo_id:
+    if not re.fullmatch(r"[0-9]+", prestamo_id) or int(prestamo_id) <= 0:
         flash("No se encontró un préstamo activo para devolver.", "warning")
         return redirect(request.referrer or url_for("prestamos_hub"))
+    prestamo_id = int(prestamo_id)
 
     obs_dev = request.form.get("observaciones_devolucion", "").strip()
 
@@ -2786,6 +4555,8 @@ def descargar_acta(nombre_archivo):
 @login_required
 def ver_trabajadores():
     conn = get_db()
+    ensure_access_matrix_schema(conn)
+    conn.commit()
     cursor = conn.cursor()
 
     trabajadores = cursor.execute("""
@@ -2817,32 +4588,93 @@ def ver_trabajadores():
     bienes_activos_por_trabajador = {}
     for bien in bienes_asignados:
         bienes_activos_por_trabajador.setdefault(bien["trabajador_id"], []).append(dict(bien))
+    perfiles_cargo_nuevo = _obtener_perfiles_cargo_validados(cursor)
     conn.close()
     return render_template("trabajadores.html", trabajadores=trabajadores,
                            trabajadores_antiguos=trabajadores_antiguos,
                            contratos_por_trabajador=contratos_por_trabajador,
-                           bienes_activos_por_trabajador=bienes_activos_por_trabajador)
+                           bienes_activos_por_trabajador=bienes_activos_por_trabajador,
+                           perfiles_cargo_nuevo=perfiles_cargo_nuevo)
 
 @app.route("/trabajadores/nuevo", methods=["POST"])
 @permiso_requerido("personal", "modificar")
 @login_required
 def registrar_trabajador():
-    dni = request.form["dni"].strip()
+    try:
+        dni = validar_dni(request.form.get("dni"))
+        correo_personal = validar_correo(
+            request.form.get("correo_personal"), "El correo personal"
+        )
+        correo_institucional = validar_correo(
+            request.form.get("correo_institucional"), "El correo institucional"
+        )
+        telefono = validar_numero_contacto(request.form.get("telefono"), "El teléfono")
+        celular_institucional = validar_numero_contacto(
+            request.form.get("celular_institucional"), "El celular institucional"
+        )
+        fecha_nacimiento = validar_fecha_formulario(
+            request.form.get("fecha_nacimiento"), "la fecha de nacimiento"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(request.referrer or url_for("ver_trabajadores"))
+
     nombres = request.form["nombres"].strip()
     apellido_paterno = request.form["apellido_paterno"].strip()
     apellido_materno = request.form["apellido_materno"].strip()
-    cargo = request.form.get("cargo", "").strip()
-    correo_personal = request.form.get("correo_personal", "").strip()
-    correo_institucional = request.form.get("correo_institucional", "").strip()
+    perfil_cargo_raw = request.form.get("perfil_cargo_id", "").strip()
     tipo_contrato = request.form.get("tipo_contrato", "").strip()
-    telefono = request.form.get("telefono", "").strip()
-    celular_institucional = request.form.get("celular_institucional", "").strip()
-    fecha_nacimiento = formatear_solo_fecha(request.form.get("fecha_nacimiento", "").strip())
+    if not all((nombres, apellido_paterno, apellido_materno)):
+        flash("Nombres y ambos apellidos son obligatorios.", "warning")
+        return redirect(request.referrer or url_for("ver_trabajadores"))
+    if any(len(valor) > maximo for valor, maximo in (
+        (nombres, 120), (apellido_paterno, 100), (apellido_materno, 100),
+        (request.form.get("cargo", "").strip(), 150),
+        (request.form.get("correo_personal", "").strip(), 254),
+        (request.form.get("correo_institucional", "").strip(), 254),
+    )):
+        flash("Uno o más campos de texto superan la longitud permitida.", "warning")
+        return redirect(request.referrer or url_for("ver_trabajadores"))
+    if len(tipo_contrato) > 100:
+        flash("El contrato o régimen laboral no puede superar los 100 caracteres.", "warning")
+        return redirect(request.referrer or url_for("ver_trabajadores"))
+    try:
+        perfil_cargo_id = validar_id_formulario(perfil_cargo_raw, "perfil de cargo")
+    except ValueError:
+        flash("Seleccione un cargo con una matriz de accesos previamente validada.", "warning")
+        return redirect(request.referrer or url_for("ver_trabajadores"))
 
     conn = get_db()
+    ensure_access_matrix_schema(conn)
+    conn.commit()
     cursor = conn.cursor()
     cursor.execute("BEGIN IMMEDIATE")
     try:
+        perfil = cursor.execute("""
+            SELECT id, cargo, funciones, autorizador, reportes_requeridos, accion_acceso
+            FROM perfiles_cargo_ut
+            WHERE id = ? AND activo = 1 AND validado = 1
+              AND TRIM(funciones) != '' AND TRIM(autorizador) != ''
+        """, (perfil_cargo_id,)).fetchone()
+        if not perfil:
+            conn.rollback()
+            flash(
+                "El cargo ya no tiene una matriz activa y validada. "
+                "Revise los accesos por cargo antes de registrar al trabajador.",
+                "warning",
+            )
+            return redirect(request.referrer or url_for("ver_trabajadores"))
+
+        cargo = perfil["cargo"]
+        if not _obtener_niveles_perfil_cargo_ut(cursor, perfil["id"]):
+            conn.rollback()
+            flash(
+                f"El perfil del cargo «{cargo}» no tiene sistemas asignados. "
+                "Configure al menos los accesos generales en la matriz.",
+                "warning",
+            )
+            return redirect(request.referrer or url_for("ver_trabajadores"))
+
         existente = cursor.execute("SELECT id FROM trabajadores WHERE dni = ?", (dni,)).fetchone()
         trabajador_con_celular = buscar_trabajador_con_celular(
             cursor,
@@ -2875,6 +4707,7 @@ def registrar_trabajador():
                     celular_institucional_normalizado = ?
                 WHERE id = ?
             """, datos + (existente["id"],))
+            trabajador_id = existente["id"]
         else:
             cursor.execute("""
                 INSERT INTO trabajadores (dni, nombres, apellido_paterno, apellido_materno, cargo,
@@ -2883,36 +4716,309 @@ def registrar_trabajador():
                                           celular_institucional_normalizado)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
             """, (dni,) + datos)
+            trabajador_id = cursor.lastrowid
+
+        _registrar_snapshot_accesos_trabajador_ut(
+            cursor, trabajador_id, perfil, session.get("usuario_id")
+        )
         conn.commit()
-        flash(f"Trabajador {nombres} {apellido_paterno} registrado o reactivado correctamente.", "success")
+        flash(
+            f"Trabajador {nombres} {apellido_paterno} registrado o reactivado. "
+            f"Se cargó la matriz del cargo «{cargo}» y quedó pendiente de validación.",
+            "success",
+        )
     except Exception:
         conn.rollback()
+        app.logger.exception("No se pudo registrar al trabajador y guardar su solicitud de accesos.")
         flash(f"No se pudo guardar al trabajador. Verifique si el DNI {dni} ya está registrado.", "danger")
     finally:
         conn.close()
 
     return redirect(request.referrer or url_for("ver_trabajadores"))
 
+@app.route("/trabajadores/<int:trabajador_id>/ficha-accesos")
+@permiso_requerido("personal", "ver")
+@login_required
+def ficha_accesos_trabajador(trabajador_id):
+    conn = get_db()
+    ensure_access_matrix_schema(conn)
+    conn.commit()
+    cursor = conn.cursor()
+    trabajador = cursor.execute("""
+        SELECT id, dni, nombres, apellido_paterno, apellido_materno, cargo,
+               tipo_contrato, activo
+        FROM trabajadores
+        WHERE id = ?
+    """, (trabajador_id,)).fetchone()
+    if not trabajador:
+        conn.close()
+        flash("No se encontró al trabajador solicitado.", "warning")
+        return redirect(url_for("ver_trabajadores"))
+
+    solicitud = cursor.execute("""
+        SELECT s.*
+        FROM solicitudes_acceso_trabajador_ut s
+        WHERE s.trabajador_id = ?
+        ORDER BY s.id DESC
+        LIMIT 1
+    """, (trabajador_id,)).fetchone()
+    asignaciones = []
+    estado = "PERFIL DEL CARGO PENDIENTE DE VALIDACIÓN"
+    responsable = ""
+    funciones = ""
+    if solicitud:
+        asignaciones = [
+            dict(row) for row in cursor.execute("""
+                SELECT m.id, m.nombre, m.tipo, m.padre_id, a.nivel_acceso
+                FROM modulos_solicitud_acceso_trabajador_ut a
+                JOIN sistemas_modulos_ut m ON m.id = a.sistema_modulo_id
+                WHERE a.solicitud_id = ?
+                ORDER BY m.nombre COLLATE NOCASE
+            """, (solicitud["id"],)).fetchall()
+        ]
+        estado = solicitud["estado"]
+        responsable = solicitud["autorizador"]
+        funciones = solicitud["funciones"]
+    else:
+        perfil = cursor.execute("""
+            SELECT id, funciones, autorizador, validado
+            FROM perfiles_cargo_ut
+            WHERE LOWER(TRIM(cargo)) = LOWER(TRIM(?)) AND activo = 1
+            LIMIT 1
+        """, (trabajador["cargo"] or "",)).fetchone()
+        if perfil and perfil["validado"]:
+            niveles = {
+                row["id"]: "CUENTA"
+                for row in cursor.execute("""
+                    SELECT id FROM sistemas_modulos_ut
+                    WHERE activo = 1 AND obligatorio_todos = 1
+                """).fetchall()
+            }
+            niveles.update({
+                row["sistema_modulo_id"]: row["nivel_acceso"]
+                for row in cursor.execute("""
+                    SELECT a.sistema_modulo_id, a.nivel_acceso
+                    FROM accesos_perfil_cargo_ut a
+                    JOIN sistemas_modulos_ut m
+                      ON m.id = a.sistema_modulo_id AND m.activo = 1
+                    WHERE a.perfil_id = ?
+                """, (perfil["id"],)).fetchall()
+            })
+            asignaciones = [
+                dict(row, nivel_acceso=niveles[row["id"]])
+                for row in cursor.execute("""
+                    SELECT id, nombre, tipo, padre_id
+                    FROM sistemas_modulos_ut
+                    WHERE activo = 1
+                """).fetchall()
+                if row["id"] in niveles
+            ]
+            estado = "PROPUESTA SEGÚN MATRIZ DEL CARGO"
+            responsable = perfil["autorizador"]
+            funciones = perfil["funciones"]
+        else:
+            asignaciones = [
+                dict(row, nivel_acceso="CUENTA")
+                for row in cursor.execute("""
+                    SELECT id, nombre, tipo, padre_id
+                    FROM sistemas_modulos_ut
+                    WHERE activo = 1 AND obligatorio_todos = 1
+                """).fetchall()
+            ]
+    modulos = {
+        row["id"]: dict(row)
+        for row in cursor.execute("""
+            SELECT id, nombre, padre_id
+            FROM sistemas_modulos_ut
+        """).fetchall()
+    }
+    conn.close()
+
+    for asignacion in asignaciones:
+        partes = [asignacion["nombre"]]
+        padre_id = asignacion["padre_id"]
+        visitados = {asignacion["id"]}
+        while padre_id in modulos and padre_id not in visitados:
+            padre = modulos[padre_id]
+            partes.append(padre["nombre"])
+            visitados.add(padre_id)
+            padre_id = padre["padre_id"]
+        asignacion["ruta"] = " / ".join(reversed(partes))
+        asignacion["nivel_nombre"] = _etiqueta_nivel_acceso_ut(
+            asignacion["nivel_acceso"]
+        )
+    asignaciones.sort(key=lambda item: item["ruta"].casefold())
+
+    buffer = BytesIO()
+    documento = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=42,
+        leftMargin=42,
+        topMargin=42,
+        bottomMargin=42,
+        title=f"Ficha de accesos - {trabajador['nombres']} {trabajador['apellido_paterno']}",
+    )
+    estilos = getSampleStyleSheet()
+    estilo_celda = ParagraphStyle(
+        "CeldaFichaAccesos",
+        parent=estilos["BodyText"],
+        fontSize=8,
+        leading=10,
+    )
+    nombre_completo = " ".join(
+        valor for valor in (
+            trabajador["nombres"],
+            trabajador["apellido_paterno"],
+            trabajador["apellido_materno"],
+        ) if valor
+    )
+    elementos = [
+        Paragraph("FICHA DE SISTEMAS Y PERMISOS ASIGNADOS", estilos["Title"]),
+        Spacer(1, 12),
+        Paragraph(f"<b>Trabajador:</b> {escape_xml(nombre_completo)}", estilos["BodyText"]),
+        Paragraph(f"<b>DNI:</b> {escape_xml(trabajador['dni'] or '-')}", estilos["BodyText"]),
+        Paragraph(f"<b>Cargo:</b> {escape_xml(trabajador['cargo'] or 'Sin cargo registrado')}", estilos["BodyText"]),
+        Paragraph(f"<b>Contrato / régimen:</b> {escape_xml(trabajador['tipo_contrato'] or '-')}", estilos["BodyText"]),
+        Paragraph(f"<b>Estado de la matriz:</b> {escape_xml(estado)}", estilos["BodyText"]),
+        Paragraph(f"<b>Responsable que valida:</b> {escape_xml(responsable or '-')}", estilos["BodyText"]),
+        Paragraph(f"<b>Funciones del perfil:</b> {escape_xml(funciones or '-')}", estilos["BodyText"]),
+        Spacer(1, 12),
+    ]
+    datos_tabla = [[
+        Paragraph("<b>Sistema / módulo / aplicativo</b>", estilo_celda),
+        Paragraph("<b>Nivel de acceso</b>", estilo_celda),
+    ]]
+    for asignacion in asignaciones:
+        datos_tabla.append([
+            Paragraph(escape_xml(asignacion["ruta"]), estilo_celda),
+            Paragraph(escape_xml(asignacion["nivel_nombre"]), estilo_celda),
+        ])
+    if not asignaciones:
+        datos_tabla.append([
+            Paragraph("No hay sistemas registrados para este trabajador.", estilo_celda),
+            "",
+        ])
+    tabla = Table(datos_tabla, colWidths=[365, 130], repeatRows=1)
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B7C9D6")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EFF4F8")]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elementos.extend([
+        tabla,
+        Spacer(1, 14),
+        Paragraph(
+            "Esta ficha documenta los accesos requeridos; no crea cuentas ni concede permisos "
+            "en los sistemas externos. La habilitación debe realizarse luego de la validación "
+            "correspondiente.",
+            estilos["Italic"],
+        ),
+    ])
+    documento.build(elementos)
+    buffer.seek(0)
+    nombre_archivo = f"Ficha_Accesos_{trabajador_id}.pdf"
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=nombre_archivo,
+        mimetype="application/pdf",
+    )
+
 @app.route("/trabajadores/editar", methods=["POST"])
 @permiso_requerido("personal", "modificar")
 @login_required
 def editar_trabajador():
-    trabajador_id = request.form["trabajador_id"]
-    dni = request.form["dni"].strip()
+    try:
+        trabajador_id = validar_id_formulario(
+            request.form.get("trabajador_id"), "trabajador"
+        )
+    except ValueError:
+        flash("El identificador del trabajador no es válido.", "warning")
+        return redirect(url_for("ver_trabajadores"))
+    try:
+        dni = validar_dni(request.form.get("dni"))
+        correo_personal = validar_correo(
+            request.form.get("correo_personal"), "El correo personal"
+        )
+        correo_institucional = validar_correo(
+            request.form.get("correo_institucional"), "El correo institucional"
+        )
+        telefono = validar_numero_contacto(request.form.get("telefono"), "El teléfono")
+        celular_institucional = validar_numero_contacto(
+            request.form.get("celular_institucional"), "El celular institucional"
+        )
+        fecha_nacimiento = validar_fecha_formulario(
+            request.form.get("fecha_nacimiento"), "la fecha de nacimiento"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_trabajadores"))
+
     nombres = request.form["nombres"].strip()
     apellido_paterno = request.form["apellido_paterno"].strip()
     apellido_materno = request.form["apellido_materno"].strip()
     cargo = request.form.get("cargo", "").strip()
-    correo_personal = request.form.get("correo_personal", "").strip()
-    correo_institucional = request.form.get("correo_institucional", "").strip()
     tipo_contrato = request.form.get("tipo_contrato", "").strip()
-    telefono = request.form.get("telefono", "").strip()
-    celular_institucional = request.form.get("celular_institucional", "").strip()
-    fecha_nacimiento = formatear_solo_fecha(request.form.get("fecha_nacimiento", "").strip())
+    if not all((nombres, apellido_paterno, apellido_materno)):
+        flash("Nombres y ambos apellidos son obligatorios.", "warning")
+        return redirect(url_for("ver_trabajadores"))
+    if any(len(valor) > maximo for valor, maximo in (
+        (nombres, 120), (apellido_paterno, 100), (apellido_materno, 100),
+        (cargo, 150), (correo_personal, 254), (correo_institucional, 254),
+    )):
+        flash("Uno o más campos de texto superan la longitud permitida.", "warning")
+        return redirect(url_for("ver_trabajadores"))
+    if len(tipo_contrato) > 100:
+        flash("El contrato o régimen laboral no puede superar los 100 caracteres.", "warning")
+        return redirect(url_for("ver_trabajadores"))
 
     conn = get_db()
+    ensure_access_matrix_schema(conn)
+    conn.commit()
     cursor = conn.cursor()
     cursor.execute("BEGIN IMMEDIATE")
+    trabajador_actual = cursor.execute(
+        "SELECT cargo FROM trabajadores WHERE id = ?",
+        (trabajador_id,),
+    ).fetchone()
+    if not trabajador_actual:
+        conn.rollback()
+        conn.close()
+        flash("No se encontró al trabajador que desea editar.", "warning")
+        return redirect(url_for("ver_trabajadores"))
+
+    perfil_nuevo_cargo = None
+    cargo_actual = (trabajador_actual["cargo"] or "").strip()
+    if cargo.casefold() != cargo_actual.casefold():
+        perfil_nuevo_cargo = cursor.execute("""
+            SELECT id, cargo, funciones, autorizador, reportes_requeridos, accion_acceso
+            FROM perfiles_cargo_ut
+            WHERE LOWER(TRIM(cargo)) = LOWER(TRIM(?))
+              AND activo = 1 AND validado = 1
+              AND TRIM(funciones) != '' AND TRIM(autorizador) != ''
+            LIMIT 1
+        """, (cargo,)).fetchone()
+        if not perfil_nuevo_cargo:
+            conn.rollback()
+            conn.close()
+            flash(
+                "Para cambiar el cargo, primero configure y valide su matriz de accesos.",
+                "warning",
+            )
+            return redirect(url_for("ver_trabajadores"))
+        if not _obtener_niveles_perfil_cargo_ut(cursor, perfil_nuevo_cargo["id"]):
+            conn.rollback()
+            conn.close()
+            flash("El nuevo cargo no tiene sistemas activos asignados en su matriz.", "warning")
+            return redirect(url_for("ver_trabajadores"))
+
     trabajador_con_celular = buscar_trabajador_con_celular(
         cursor, celular_institucional, trabajador_id
     )
@@ -2942,10 +5048,25 @@ def editar_trabajador():
                             correo_institucional, tipo_contrato, telefono, celular_institucional,
                             fecha_nacimiento, normalizar_numero_celular(celular_institucional),
                             trabajador_id))
+        if perfil_nuevo_cargo:
+            _registrar_snapshot_accesos_trabajador_ut(
+                cursor,
+                trabajador_id,
+                perfil_nuevo_cargo,
+                session.get("usuario_id"),
+            )
         conn.commit()
-        flash(f"Datos de {nombres} {apellido_paterno} actualizados correctamente.", "success")
+        flash(
+            f"Datos de {nombres} {apellido_paterno} actualizados correctamente."
+            + (
+                f" Se cargó la matriz validada del cargo «{perfil_nuevo_cargo['cargo']}»."
+                if perfil_nuevo_cargo else ""
+            ),
+            "success",
+        )
     except Exception:
         conn.rollback()
+        app.logger.exception("No se pudieron guardar los datos o actualizar los accesos del trabajador.")
         flash(f"Error al actualizar: Verifique que el DNI no esté duplicado.", "danger")
     finally:
         conn.close()
@@ -3202,6 +5323,7 @@ def subir_excel():
             actualizados = resultado.get("actualizados", 0)
             diferencias = resultado.get("mismatches", [])
             celulares_duplicados = resultado.get("celulares_duplicados", [])
+            filas_invalidas = resultado.get("filas_invalidas", 0)
             mensaje = f"Se procesaron {total} trabajadores ({nuevos} nuevos, {actualizados} actualizados)."
             if diferencias:
                 detalle = "; ".join(
@@ -3220,6 +5342,8 @@ def subir_excel():
                 if len(celulares_duplicados) > 3:
                     detalle += f" ... y {len(celulares_duplicados) - 3} más"
                 flash(f"No se importaron números celulares duplicados: {detalle}.", "warning")
+            if filas_invalidas:
+                flash(f"Se omitieron {filas_invalidas} filas por DNI, teléfono, celular o fecha inválidos.", "warning")
         else:
             flash(f"Se importaron / actualizaron {resultado} trabajadores exitosamente.", "success")
     else:
@@ -3240,6 +5364,7 @@ def subir_excel_trabajadores():
             actualizados = resultado.get("actualizados", 0)
             diferencias = resultado.get("mismatches", [])
             celulares_duplicados = resultado.get("celulares_duplicados", [])
+            filas_invalidas = resultado.get("filas_invalidas", 0)
             mensaje = f"Se procesaron {total} trabajadores ({nuevos} nuevos, {actualizados} actualizados)."
             if diferencias:
                 detalle = "; ".join(
@@ -3258,11 +5383,405 @@ def subir_excel_trabajadores():
                 if len(celulares_duplicados) > 3:
                     detalle += f" ... y {len(celulares_duplicados) - 3} más"
                 flash(f"No se importaron números celulares duplicados: {detalle}.", "warning")
+            if filas_invalidas:
+                flash(f"Se omitieron {filas_invalidas} filas por DNI, teléfono, celular o fecha inválidos.", "warning")
         else:
             flash(f"Se importaron / actualizaron {resultado} trabajadores exitosamente.", "success")
     else:
         flash("Formato inválido. Seleccione un archivo Excel (.xlsx) para personal.", "danger")
     return redirect(url_for("ver_trabajadores"))
+
+# ================= GESTIÓN DE CERTIFICADOS DIGITALES =================
+@app.route("/tokens")
+@permiso_requerido("tokens", "ver")
+@login_required
+def ver_tokens():
+    filtro = request.args.get("estado", "ACTIVOS").upper()
+    condiciones = {
+        "ACTIVOS": "estado = 'VIGENTE'",
+        "RETIRADOS": "estado = 'RETIRADO'",
+        "TODOS": "1 = 1",
+        "ALERTAS": "estado = 'VIGENTE' AND fecha_caducidad <= ?",
+    }
+    if filtro not in condiciones:
+        filtro = "ACTIVOS"
+
+    hoy = date.today()
+    conn = get_db()
+    cursor = conn.cursor()
+    parametros = []
+    if filtro == "ALERTAS":
+        parametros.append((date.today() + timedelta(days=DIAS_ALERTA_CERTIFICADO)).isoformat())
+    certificados = cursor.execute(
+        "SELECT * FROM certificados_digitales WHERE "
+        + condiciones[filtro]
+        + " ORDER BY CASE WHEN estado = 'VIGENTE' THEN 0 ELSE 1 END, fecha_caducidad, apellido_paterno, nombres",
+        parametros,
+    ).fetchall()
+    alertas = cursor.execute("""
+        SELECT * FROM certificados_digitales
+        WHERE estado = 'VIGENTE' AND fecha_caducidad <= ?
+        ORDER BY fecha_caducidad, apellido_paterno, nombres
+    """, ((date.today() + timedelta(days=DIAS_ALERTA_CERTIFICADO)).isoformat(),)).fetchall()
+    total_activos = cursor.execute(
+        """
+        SELECT COUNT(*) FROM certificados_digitales
+        WHERE estado = 'VIGENTE' AND fecha_inicio <= ? AND fecha_caducidad >= ?
+        """,
+        (hoy.isoformat(), hoy.isoformat()),
+    ).fetchone()[0]
+    total_retirados = cursor.execute(
+        "SELECT COUNT(*) FROM certificados_digitales WHERE estado = 'RETIRADO'"
+    ).fetchone()[0]
+    trabajadores = cursor.execute("""
+        SELECT id, dni, nombres, apellido_paterno, apellido_materno, cargo,
+               correo_personal, correo_institucional
+        FROM trabajadores
+        WHERE activo = 1
+        ORDER BY apellido_paterno COLLATE NOCASE, apellido_materno COLLATE NOCASE, nombres COLLATE NOCASE
+    """).fetchall()
+    conn.close()
+
+    filas_certificados = []
+    for certificado in certificados:
+        fila = dict(certificado)
+        dias = (date.fromisoformat(fila["fecha_caducidad"]) - hoy).days
+        fila["fecha_inicio_display"] = date.fromisoformat(fila["fecha_inicio"]).strftime("%d/%m/%Y")
+        fila["fecha_caducidad_display"] = date.fromisoformat(fila["fecha_caducidad"]).strftime("%d/%m/%Y")
+        fila["dias_restantes"] = dias
+        fila["alerta"] = (
+            "RETIRADO" if fila["estado"] == "RETIRADO"
+            else "VENCIDO" if dias < 0
+            else "POR INICIAR" if date.fromisoformat(fila["fecha_inicio"]) > hoy
+            else "POR VENCER" if dias <= DIAS_ALERTA_CERTIFICADO
+            else "VIGENTE"
+        )
+        filas_certificados.append(fila)
+
+    filas_alerta = []
+    for certificado in alertas:
+        fila = dict(certificado)
+        fila["dias_restantes"] = (date.fromisoformat(fila["fecha_caducidad"]) - hoy).days
+        fila["fecha_caducidad_display"] = date.fromisoformat(fila["fecha_caducidad"]).strftime("%d/%m/%Y")
+        filas_alerta.append(fila)
+
+    return render_template(
+        "tokens.html",
+        certificados=filas_certificados,
+        alertas=filas_alerta,
+        filtro=filtro,
+        total_activos=total_activos,
+        total_retirados=total_retirados,
+        total_alertas=len(filas_alerta),
+        dias_alerta=DIAS_ALERTA_CERTIFICADO,
+        trabajadores=trabajadores,
+    )
+
+
+@app.route("/tokens/nuevo", methods=["POST"])
+@permiso_requerido("tokens", "modificar")
+@login_required
+def nuevo_token():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
+    try:
+        datos = datos_certificado_desde_formulario(
+            request.form, cursor, exigir_titular=True
+        )
+    except ValueError as error:
+        conn.close()
+        flash(str(error), "danger")
+        return redirect(url_for("ver_tokens"))
+
+    if buscar_certificado_duplicado(cursor, datos):
+        conn.close()
+        flash("Ese certificado ya está registrado con las mismas fechas para esta persona.", "danger")
+        return redirect(url_for("ver_tokens"))
+    cursor.execute("""
+        INSERT INTO certificados_digitales (
+            dni, apellido_paterno, apellido_materno, nombres, cargo, oficina,
+            correo, tipo_certificado, trabajador_id, numero_resolucion,
+            fecha_inicio, fecha_caducidad
+        ) VALUES (
+            :dni, :apellido_paterno, :apellido_materno, :nombres, :cargo, :oficina,
+            :correo, :tipo_certificado, :trabajador_id, :numero_resolucion,
+            :fecha_inicio, :fecha_caducidad
+        )
+    """, datos)
+    conn.commit()
+    conn.close()
+    flash("Certificado digital registrado correctamente.", "success")
+    return redirect(url_for("ver_tokens"))
+
+
+@app.route("/tokens/editar/<int:certificado_id>", methods=["POST"])
+@permiso_requerido("tokens", "modificar")
+@login_required
+def editar_token(certificado_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
+    existe = cursor.execute(
+        "SELECT id FROM certificados_digitales WHERE id = ?", (certificado_id,)
+    ).fetchone()
+    if not existe:
+        conn.close()
+        flash("No se encontró el certificado que desea editar.", "warning")
+        return redirect(url_for("ver_tokens"))
+    try:
+        datos = datos_certificado_desde_formulario(
+            request.form, cursor, exigir_titular=True
+        )
+    except ValueError as error:
+        conn.close()
+        flash(str(error), "danger")
+        return redirect(url_for("ver_tokens"))
+    if buscar_certificado_duplicado(cursor, datos, certificado_id):
+        conn.close()
+        flash("Ya existe otro registro para esa persona, tipo y periodo de certificado.", "danger")
+        return redirect(url_for("ver_tokens"))
+
+    cursor.execute("""
+        UPDATE certificados_digitales
+        SET dni = :dni, apellido_paterno = :apellido_paterno,
+            apellido_materno = :apellido_materno, nombres = :nombres, cargo = :cargo,
+            oficina = :oficina, correo = :correo, tipo_certificado = :tipo_certificado,
+            trabajador_id = :trabajador_id, numero_resolucion = :numero_resolucion,
+            fecha_inicio = :fecha_inicio, fecha_caducidad = :fecha_caducidad,
+            actualizado_el = CURRENT_TIMESTAMP
+        WHERE id = :id
+    """, dict(datos, id=certificado_id))
+    conn.commit()
+    conn.close()
+    flash("Certificado digital actualizado correctamente.", "success")
+    return redirect(url_for("ver_tokens"))
+
+
+@app.route("/tokens/retirar/<int:certificado_id>", methods=["POST"])
+@permiso_requerido("tokens", "eliminar")
+@login_required
+def retirar_token(certificado_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE certificados_digitales
+        SET estado = 'RETIRADO', actualizado_el = CURRENT_TIMESTAMP
+        WHERE id = ? AND estado = 'VIGENTE'
+    """, (certificado_id,))
+    if cursor.rowcount:
+        conn.commit()
+        flash("Certificado retirado. Se conserva su registro para mantener el historial.", "success")
+    else:
+        conn.rollback()
+        flash("No se encontró un certificado vigente con ese identificador.", "warning")
+    conn.close()
+    return redirect(url_for("ver_tokens"))
+
+
+@app.route("/tokens/importar-excel", methods=["POST"])
+@permiso_requerido("tokens", "modificar")
+@login_required
+def importar_tokens_excel():
+    archivo = request.files.get("archivo_excel_tokens")
+    if not archivo or not archivo.filename or not archivo.filename.lower().endswith(".xlsx"):
+        flash("Seleccione un archivo Excel válido (.xlsx).", "danger")
+        return redirect(url_for("ver_tokens"))
+
+    try:
+        libro = openpyxl.load_workbook(archivo, data_only=True, read_only=True)
+    except Exception:
+        flash("No se pudo leer el archivo Excel. Verifique que sea un .xlsx válido.", "danger")
+        return redirect(url_for("ver_tokens"))
+
+    aliases = {
+        "dni": {"dni", "documento", "documento_de_identidad", "identificacion"},
+        "apellido_paterno": {"apellido_paterno", "apell_paterno", "paterno"},
+        "apellido_materno": {"apellido_materno", "apell_materno", "materno"},
+        "nombres": {"nombres", "nombre"},
+        "cargo": {"cargo", "puesto"},
+        "oficina": {"oficina", "area", "dependencia"},
+        "correo": {"correo", "email", "correo_electronico"},
+        "tipo_certificado": {"tipo_certificado", "tipo_de_certificado", "certificado", "tipo"},
+        "tipo_titular": {"tipo_titular", "tipo_de_titular", "titular", "origen"},
+        "numero_resolucion": {
+            "numero_resolucion", "numero_de_resolucion", "nro_resolucion",
+            "n_de_resolucion", "resolucion",
+        },
+        "fecha_inicio": {"fecha_inicio", "inicio", "fecha_de_inicio", "fecha_emision"},
+        "fecha_caducidad": {"fecha_caducidad", "fecha_expiracion", "fecha_de_expiracion", "caducidad", "vencimiento"},
+    }
+    requeridos = {
+        "dni", "apellido_paterno", "apellido_materno", "nombres",
+        "tipo_certificado", "fecha_inicio", "fecha_caducidad",
+    }
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("BEGIN IMMEDIATE")
+    importados = 0
+    duplicados = 0
+    errores_filas = []
+
+    for hoja in libro.worksheets:
+        encabezado_encontrado = None
+        mapa_columnas = {}
+        for numero_fila, fila in enumerate(hoja.iter_rows(min_row=1, max_row=20, values_only=True), start=1):
+            candidatos = {
+                campo: indice
+                for indice, valor in enumerate(fila)
+                for campo, nombres in aliases.items()
+                if normalizar_encabezado_certificado(valor) in nombres
+            }
+            if requeridos <= candidatos.keys():
+                encabezado_encontrado = numero_fila
+                mapa_columnas = candidatos
+                break
+        if encabezado_encontrado is None:
+            errores_filas.append(f"{hoja.title}: no se detectaron los encabezados requeridos")
+            continue
+
+        for numero_fila, fila in enumerate(
+            hoja.iter_rows(min_row=encabezado_encontrado + 1, values_only=True),
+            start=encabezado_encontrado + 1,
+        ):
+            if not any(valor is not None and str(valor).strip() for valor in fila):
+                continue
+            datos_fila = {}
+            for campo, indice in mapa_columnas.items():
+                if campo in ("fecha_inicio", "fecha_caducidad"):
+                    continue
+                valor = fila[indice] if indice < len(fila) else None
+                if isinstance(valor, float) and valor.is_integer():
+                    valor = int(valor)
+                datos_fila[campo] = str(valor).strip() if valor is not None else ""
+            try:
+                for campo in ("fecha_inicio", "fecha_caducidad"):
+                    indice = mapa_columnas.get(campo)
+                    datos_fila[campo] = fecha_certificado_iso(
+                        fila[indice] if indice is not None and indice < len(fila) else None
+                    )
+                datos = datos_certificado_desde_formulario(datos_fila, cursor)
+            except ValueError as error:
+                errores_filas.append(f"{hoja.title}, fila {numero_fila}: {error}")
+                continue
+
+            if buscar_certificado_duplicado(cursor, datos):
+                duplicados += 1
+                continue
+            cursor.execute("""
+                INSERT INTO certificados_digitales (
+                    dni, apellido_paterno, apellido_materno, nombres, cargo, oficina,
+                        correo, tipo_certificado, trabajador_id, numero_resolucion,
+                        fecha_inicio, fecha_caducidad
+                    ) VALUES (
+                        :dni, :apellido_paterno, :apellido_materno, :nombres, :cargo, :oficina,
+                        :correo, :tipo_certificado, :trabajador_id, :numero_resolucion,
+                        :fecha_inicio, :fecha_caducidad
+                    )
+            """, datos)
+            importados += 1
+
+    libro.close()
+    conn.commit()
+    conn.close()
+    flash(f"Importación terminada: {importados} certificados agregados, {duplicados} duplicados omitidos.", "success")
+    if errores_filas:
+        detalle = "; ".join(errores_filas[:4])
+        if len(errores_filas) > 4:
+            detalle += f"; y {len(errores_filas) - 4} errores más"
+        flash(f"Algunas filas no se importaron: {detalle}.", "warning")
+    return redirect(url_for("ver_tokens"))
+
+
+@app.route("/tokens/exportar-excel")
+@permiso_requerido("tokens", "reportar")
+@login_required
+def exportar_tokens_excel():
+    filtro = request.args.get("estado", "TODOS").upper()
+    condiciones = {
+        "TODOS": "1 = 1",
+        "ACTIVOS": "estado = 'VIGENTE'",
+        "RETIRADOS": "estado = 'RETIRADO'",
+        "ALERTAS": "estado = 'VIGENTE' AND fecha_caducidad <= ?",
+    }
+    if filtro not in condiciones:
+        filtro = "TODOS"
+    parametros = (
+        ((date.today() + timedelta(days=DIAS_ALERTA_CERTIFICADO)).isoformat(),)
+        if filtro == "ALERTAS" else ()
+    )
+    conn = get_db()
+    certificados = conn.execute(
+        "SELECT * FROM certificados_digitales WHERE "
+        + condiciones[filtro]
+        + " ORDER BY fecha_caducidad, apellido_paterno, nombres",
+        parametros,
+    ).fetchall()
+    conn.close()
+
+    libro = openpyxl.Workbook()
+    hoja = libro.active
+    hoja.title = "Certificados digitales"
+    encabezados = [
+        "N°", "DNI", "APELL. PATERNO", "APELL. MATERNO", "NOMBRES", "CARGO",
+        "OFICINA", "CORREO", "TITULAR", "N° DE RESOLUCIÓN", "TIPO DE CERTIFICADO", "FECHA DE INICIO",
+        "FECHA EXPIRACIÓN", "ESTADO",
+    ]
+    hoja.append(encabezados)
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    border = Border(
+        left=Side(style="thin", color="000000"), right=Side(style="thin", color="000000"),
+        top=Side(style="thin", color="000000"), bottom=Side(style="thin", color="000000"),
+    )
+    for celda in hoja[1]:
+        celda.fill = header_fill
+        celda.font = header_font
+        celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        celda.border = border
+
+    hoy = date.today()
+    for numero, certificado in enumerate(certificados, start=1):
+        caducidad = date.fromisoformat(certificado["fecha_caducidad"])
+        dias = (caducidad - hoy).days
+        alerta = (
+            "RETIRADO" if certificado["estado"] == "RETIRADO"
+            else "VENCIDO" if dias < 0
+            else "POR INICIAR" if date.fromisoformat(certificado["fecha_inicio"]) > hoy
+            else "POR VENCER" if dias <= DIAS_ALERTA_CERTIFICADO
+            else "VIGENTE"
+        )
+        hoja.append([
+            numero, certificado["dni"], certificado["apellido_paterno"],
+            certificado["apellido_materno"], certificado["nombres"], certificado["cargo"],
+            certificado["oficina"], certificado["correo"],
+            (
+                "PERSONAL" if certificado["trabajador_id"]
+                else "MIEMBRO DEL COMITÉ" if certificado["numero_resolucion"]
+                else "REGISTRO PREVIO"
+            ),
+            certificado["numero_resolucion"], certificado["tipo_certificado"],
+            certificado["fecha_inicio"], certificado["fecha_caducidad"], alerta,
+        ])
+        for celda in hoja[hoja.max_row]:
+            celda.border = border
+            celda.alignment = Alignment(vertical="center", wrap_text=True)
+    for columna in hoja.columns:
+        largo = max(len(str(celda.value or "")) for celda in columna)
+        letra = openpyxl.utils.get_column_letter(columna[0].column)
+        hoja.column_dimensions[letra].width = min(max(largo + 3, 12), 32)
+    hoja.freeze_panes = "A2"
+    hoja.auto_filter.ref = hoja.dimensions
+    buffer = BytesIO()
+    libro.save(buffer)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"Certificados_Digitales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 # ================= MÓDULO DE REPORTES Y TRAZABILIDAD =================
 @app.route("/reportes")
@@ -3274,8 +5793,13 @@ def ver_reportes():
     if categoria not in ["TODAS", "MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO"]:
         categoria = "TODAS"
     periodo = request.args.get("periodo", "TODOS").upper()
-    f_desde = request.args.get("desde", "")
-    f_hasta = request.args.get("hasta", "")
+    try:
+        f_desde, f_hasta = validar_rango_fechas(
+            request.args.get("desde", ""), request.args.get("hasta", ""), "reporte"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_reportes"))
     
     conn = get_db()
     cursor = conn.cursor()
@@ -3377,8 +5901,13 @@ def exportar_reporte_excel():
     if categoria not in ["TODAS", "MOVILES", "TOKENS", "INFORMATICOS", "MOBILIARIO"]:
         categoria = "TODAS"
     periodo = request.args.get("periodo", "TODOS").upper()
-    f_desde = request.args.get("desde", "")
-    f_hasta = request.args.get("hasta", "")
+    try:
+        f_desde, f_hasta = validar_rango_fechas(
+            request.args.get("desde", ""), request.args.get("hasta", ""), "reporte"
+        )
+    except ValueError as error:
+        flash(str(error), "warning")
+        return redirect(url_for("ver_reportes"))
 
     conn = get_db()
     cursor = conn.cursor()

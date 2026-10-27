@@ -14,6 +14,7 @@ NOMBRES_CATEGORIAS_TDR = {
     'EQUIPOS MOVILES': 'GESTIÓN Y ASISTENCIA DE EQUIPOS MÓVILES INSTITUCIONALES',
     'TOKENS': 'CONFIGURACIÓN Y EMISIÓN DE TOKENS / FIRMA DIGITAL',
     'CAPACITACION': 'CAPACITACIONES, VIDEOCONFERENCIAS Y ASISTENCIAS VIRTUALES',
+    'GRABAR SESION': 'GRABACIÓN DE SESIONES Y ASISTENCIAS TÉCNICAS',
     'TRAMITE UTI': 'TRÁMITES, INFORMES Y GESTIONES TÉCNICAS UTI'
 }
 
@@ -298,6 +299,7 @@ def generar_reporte_actividades_docx(actividades_lista, periodo_desde, periodo_h
             est_item = act.get('estado') or ''
             h_ini = act.get('hora_inicio') or ''
             h_fin = act.get('hora_fin') or ''
+            codigo_control = act.get('codigo_control') or f"ACT-{int(act['id']):06d}"
 
             # Línea 1: Número, Fecha y Título
             p_item = doc.add_paragraph()
@@ -309,7 +311,7 @@ def generar_reporte_actividades_docx(actividades_lista, periodo_desde, periodo_h
             r_n.font.size = Pt(9.5)
             r_n.bold = True
 
-            r_f = p_item.add_run(f'[{fecha_item}] ')
+            r_f = p_item.add_run(f'[{codigo_control}] [{fecha_item}] ')
             r_f.font.name = 'Century Gothic'
             r_f.font.size = Pt(9)
             r_f.bold = True
@@ -326,6 +328,7 @@ def generar_reporte_actividades_docx(actividades_lista, periodo_desde, periodo_h
             p_det.paragraph_format.space_after = Pt(4)
 
             meta = []
+            meta.append(f'ID de control: {codigo_control}')
             if area_item: meta.append(f'Área: {area_item}')
             if prio_item: meta.append(f'Prioridad: {prio_item}')
             if est_item: meta.append(f'Estado: {est_item}')

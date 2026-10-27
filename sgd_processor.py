@@ -33,14 +33,47 @@ def aplicar_destinatarios_ocultos(resultado, ocultos):
     ]
     resultado_visible["suma_top10"] = sum(item["cant"] for item in resultado_visible["top_10"])
     resultado_visible["pct_top10"] = round((resultado_visible["suma_top10"] / resultado_visible["gran_total"] * 100), 1) if resultado_visible["gran_total"] else 0
-    documentos_100_dias = [
-        item for item in resultado.get("documentos_100_dias", [])
-        if item["nombre"] not in ocultos
-    ]
-    resultado_visible["documentos_100_dias"] = documentos_100_dias
-    resultado_visible["total_documentos_100_dias"] = sum(item["cant"] for item in documentos_100_dias)
-    resultado_visible["total_trabajadores_100_dias"] = len(documentos_100_dias)
     return resultado_visible
+
+
+def aplicar_umbral_antiguedad(resultado, fecha_corte_str, umbral_dias):
+    """Calcula los documentos que siguen pendientes al menos el umbral indicado."""
+    resultado_visible = dict(resultado)
+    dt_corte = datetime.strptime(fecha_corte_str.split()[0], "%d/%m/%Y")
+    documentos_umbral = []
+    documentos_sin_fecha = 0
+
+    for destinatario in resultado.get("destinatarios", []):
+        cantidad_umbral = 0
+        fecha_mas_antigua = None
+        antiguedad_maxima = 0
+        for fecha, cantidad in resultado.get("matriz", {}).get(destinatario, {}).items():
+            try:
+                fecha_documento = datetime.strptime(fecha, "%d/%m/%Y")
+            except (TypeError, ValueError):
+                documentos_sin_fecha += cantidad
+                continue
+            antiguedad = (dt_corte - fecha_documento).days
+            if antiguedad >= umbral_dias:
+                cantidad_umbral += cantidad
+                if antiguedad > antiguedad_maxima:
+                    antiguedad_maxima = antiguedad
+                    fecha_mas_antigua = fecha
+        if cantidad_umbral:
+            documentos_umbral.append({
+                "nombre": destinatario,
+                "cant": cantidad_umbral,
+                "fecha_mas_antigua": fecha_mas_antigua,
+                "dias_max": antiguedad_maxima
+            })
+
+    documentos_umbral.sort(key=lambda item: (-item["dias_max"], -item["cant"], item["nombre"]))
+    resultado_visible["documentos_umbral_dias"] = documentos_umbral
+    resultado_visible["total_documentos_umbral_dias"] = sum(item["cant"] for item in documentos_umbral)
+    resultado_visible["total_trabajadores_umbral_dias"] = len(documentos_umbral)
+    resultado_visible["documentos_sin_fecha"] = documentos_sin_fecha
+    return resultado_visible
+
 
 def convertir_a_fecha_dma(valor_raw):
     """
@@ -239,34 +272,6 @@ def procesar_sgd_excel(ruta_archivo, tipo_estado="NO LEIDOS", fecha_corte_str=No
     for r_k, r_v in rangos_antiguedad.items():
         r_v["pct"] = round((r_v["cant"] / gran_total * 100), 1) if gran_total > 0 else 0
 
-    documentos_100_dias = []
-    documentos_sin_fecha = 0
-    if str(tipo_estado).strip().upper().replace(" ", "_") in {"NO_LEIDOS", "RECIBIDOS"}:
-        for destinatario, documentos_por_fecha in tabla_dinamica.items():
-            cantidad_vencida = 0
-            fecha_mas_antigua = None
-            antiguedad_maxima = 0
-            for fecha, cantidad in documentos_por_fecha.items():
-                try:
-                    fecha_documento = datetime.strptime(fecha, "%d/%m/%Y")
-                except (TypeError, ValueError):
-                    documentos_sin_fecha += cantidad
-                    continue
-                antiguedad = (dt_corte - fecha_documento).days
-                if antiguedad >= 100:
-                    cantidad_vencida += cantidad
-                    if antiguedad > antiguedad_maxima:
-                        antiguedad_maxima = antiguedad
-                        fecha_mas_antigua = fecha
-            if cantidad_vencida:
-                documentos_100_dias.append({
-                    "nombre": destinatario,
-                    "cant": cantidad_vencida,
-                    "fecha_mas_antigua": fecha_mas_antigua,
-                    "dias_max": antiguedad_maxima
-                })
-    documentos_100_dias.sort(key=lambda item: (-item["dias_max"], -item["cant"], item["nombre"]))
-
     fechas_detalle = []
     for f in fechas_columnas:
         cant_f = totales_por_fecha.get(f, 0)
@@ -297,10 +302,6 @@ def procesar_sgd_excel(ruta_archivo, tipo_estado="NO LEIDOS", fecha_corte_str=No
         "suma_top10": suma_top10,
         "pct_top10": pct_top10,
         "rangos_antiguedad": rangos_antiguedad,
-        "documentos_100_dias": documentos_100_dias,
-        "total_documentos_100_dias": sum(item["cant"] for item in documentos_100_dias),
-        "total_trabajadores_100_dias": len(documentos_100_dias),
-        "documentos_sin_fecha": documentos_sin_fecha,
         "fechas_detalle": fechas_detalle,
         "criticos_count": criticos_count,
         "medios_count": medios_count,

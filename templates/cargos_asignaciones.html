@@ -1,0 +1,838 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% macro editar_catalogo(item) %}
+<details class="ut-edit-panel">
+    <summary class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square me-1"></i>Modificar</summary>
+    <form action="{{ url_for('editar_modulo_ut', modulo_id=item.id) }}" method="POST" class="ut-edit-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="redirigir" value="catalogo">
+        <div class="row g-2 align-items-end">
+            <div class="col-lg-4">
+                <label class="form-label fw-semibold" for="editarNombre-{{ item.id }}">Nombre</label>
+                <input class="form-control" id="editarNombre-{{ item.id }}" name="nombre" value="{{ item.nombre }}" maxlength="120" required>
+            </div>
+            <div class="col-sm-5 col-lg-2">
+                <label class="form-label fw-semibold" for="editarTipo-{{ item.id }}">Tipo</label>
+                <select class="form-select" id="editarTipo-{{ item.id }}" name="tipo" required>
+                    {% for tipo, etiqueta in [('SISTEMA', 'Sistema'), ('MODULO', 'Módulo'), ('SUBMODULO', 'Submódulo'), ('APK', 'APK / aplicativo'), ('SERVICIO', 'Servicio / cuenta')] %}
+                    <option value="{{ tipo }}" {% if item.tipo == tipo %}selected{% endif %}>{{ etiqueta }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-7 col-lg-3">
+                <label class="form-label fw-semibold" for="editarPadre-{{ item.id }}">Sistema o elemento padre</label>
+                <select class="form-select" id="editarPadre-{{ item.id }}" name="padre_id">
+                    <option value="">Elemento principal (sin padre)</option>
+                    {% for candidato in modulos %}
+                        {% if candidato.id != item.id and candidato.tipo in ['SISTEMA', 'MODULO', 'SUBMODULO'] and not candidato.ruta.startswith(item.ruta ~ ' / ') %}
+                        <option value="{{ candidato.id }}" {% if item.padre_id == candidato.id %}selected{% endif %}>{{ candidato.ruta }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="editarObligatorio-{{ item.id }}" name="obligatorio_todos" {% if item.obligatorio_todos %}checked{% endif %}>
+                    <label class="form-check-label fw-semibold" for="editarObligatorio-{{ item.id }}">Requerido por todos</label>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-1 d-grid">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar</button>
+            </div>
+        </div>
+    </form>
+</details>
+{% endmacro %}
+
+{% macro catalogo_descendientes(items, depth=1) %}
+    {% for item in items %}
+    <div class="ut-catalog-item {% if item.tipo in ['MODULO', 'SUBMODULO'] %}ut-catalog-submodule{% endif %}" style="--tree-depth: {{ depth }}">
+        <div class="ut-catalog-item-name">
+            <span class="ut-tree-guide" aria-hidden="true"></span>
+            <span class="{% if item.tipo in ['MODULO', 'SUBMODULO'] %}ut-catalog-label{% endif %} {% if item.hijos %}fw-semibold{% endif %}">{{ item.nombre }}</span>
+            <span class="ut-type-badge ut-type-{{ item.tipo|lower }}">{{ item.tipo }}</span>
+            {% if not item.activo %}<span class="badge bg-secondary">Inactivo</span>{% elif item.obligatorio_todos %}<span class="badge bg-primary">Obligatorio para todos</span>{% endif %}
+        </div>
+        {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+        <div class="ut-catalog-actions">
+            {{ editar_catalogo(item) }}
+            <form action="{{ url_for('cambiar_estado_modulo_ut', modulo_id=item.id) }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir" value="catalogo">
+                <button type="submit" class="btn btn-sm {% if item.activo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
+                    {% if item.activo %}<i class="bi bi-archive me-1"></i>Desactivar{% else %}<i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar{% endif %}
+                </button>
+            </form>
+            <form action="{{ url_for('eliminar_modulo_ut', modulo_id=item.id) }}" method="POST" onsubmit="return confirm('¿Eliminar definitivamente este elemento? Si tiene módulos hijos o asignaciones, el sistema impedirá la eliminación para conservar el historial.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="redirigir" value="catalogo">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Eliminar</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+    {% if item.hijos %}{{ catalogo_descendientes(item.hijos, depth + 1) }}{% endif %}
+    {% endfor %}
+{% endmacro %}
+
+{% macro acceso_descendientes(items, perfil_id, accesos, niveles, depth=1) %}
+    {% for item in items %}
+    <div class="ut-access-row" style="--tree-depth: {{ depth }}">
+        <div class="ut-access-name">
+            <span class="ut-tree-guide" aria-hidden="true"></span>
+            <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" id="perfil-{{ perfil_id }}-modulo-{{ item.id }}" name="modulo_id" value="{{ item.id }}" {% if item.obligatorio_todos %}checked disabled{% elif accesos.get(item.id) %}checked{% endif %}>
+                <label class="form-check-label {% if item.hijos %}fw-semibold{% endif %} {% if item.tipo in ['MODULO', 'SUBMODULO'] %}ut-catalog-label{% endif %}" for="perfil-{{ perfil_id }}-modulo-{{ item.id }}">{{ item.nombre }}</label>
+                <span class="ut-type-badge ut-type-{{ item.tipo|lower }} ms-1">{{ item.tipo }}</span>
+            </div>
+        </div>
+        <select class="form-select form-select-sm ut-access-level" name="nivel_{{ item.id }}" aria-label="Nivel de acceso para {{ item.nombre }}">
+            {% for codigo, etiqueta in niveles.items() %}
+            <option value="{{ codigo }}" {% if accesos.get(item.id, 'CUENTA' if item.obligatorio_todos else 'LECTURA') == codigo %}selected{% endif %}>{{ etiqueta }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% if item.hijos %}{{ acceso_descendientes(item.hijos, perfil_id, accesos, niveles, depth + 1) }}{% endif %}
+    {% endfor %}
+{% endmacro %}
+
+<style>
+    /* Estilos del Catálogo Visual con Botones */
+    .ut-cat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1.35rem;
+    }
+    .ut-cat-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 250px;
+        padding: 1.25rem;
+        border: 2px solid #cbd5e1;
+        border-radius: 1.15rem;
+        background: #ffffff;
+        color: #1e293b;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
+        transition: all .24s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ut-cat-card:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 12px 28px rgba(37, 99, 235, .18);
+        transform: translateY(-4px);
+    }
+    .ut-cat-card:hover .ut-cat-icon {
+        transform: scale(1.08);
+    }
+    .ut-cat-card-body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        text-decoration: none;
+        color: inherit;
+        flex-grow: 1;
+        padding: .4rem 0;
+        cursor: pointer;
+    }
+    .ut-cat-card-body:hover .ut-cat-title {
+        color: #2563eb;
+    }
+    .ut-cat-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 70px;
+        height: 70px;
+        border-radius: 1.1rem;
+        font-size: 2.1rem;
+        color: #ffffff;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, .14);
+        transition: transform .24s ease;
+    }
+    .ut-cat-title {
+        font-size: 1.1rem;
+        font-weight: 800;
+        text-align: center;
+        letter-spacing: .02em;
+        line-height: 1.25;
+    }
+    .ut-cat-desc {
+        font-size: .82rem;
+        color: #64748b;
+        text-align: center;
+        line-height: 1.35;
+    }
+    .ut-cat-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding-top: .65rem;
+        border-top: 1px solid #f1f5f9;
+        font-size: .8rem;
+    }
+    .ut-cat-obligatorio {
+        border-color: #10b981;
+        background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+    }
+    .ut-cat-card-action {
+        font-size: .82rem;
+        font-weight: 700;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        gap: .3rem;
+    }
+
+    /* Degradados de fondo para los iconos de cada sistema */
+    .ut-bg-sigo       { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+    .ut-bg-sigdel     { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
+    .ut-bg-sgd        { background: linear-gradient(135deg, #059669, #047857); }
+    .ut-bg-sade       { background: linear-gradient(135deg, #d97706, #b45309); }
+    .ut-bg-correo     { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+    .ut-bg-mesa       { background: linear-gradient(135deg, #0891b2, #0e7490); }
+    .ut-bg-apk        { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .ut-bg-apk-est    { background: linear-gradient(135deg, #4f46e5, #4338ca); }
+    .ut-bg-apk-alm    { background: linear-gradient(135deg, #ea580c, #c2410c); }
+    .ut-bg-apk-iiee   { background: linear-gradient(135deg, #0d9488, #0f766e); }
+    .ut-bg-siga       { background: linear-gradient(135deg, #9333ea, #7e22ce); }
+    .ut-bg-siaf       { background: linear-gradient(135deg, #0284c7, #0369a1); }
+    .ut-bg-default    { background: linear-gradient(135deg, #475569, #334155); }
+
+    /* Estilos del árbol de perfiles y catálogo */
+    .ut-system-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+    .ut-system-card { min-width: 0; border: 1px solid #cbd5e1; border-radius: .65rem; overflow: hidden; background: #fff; box-shadow: 0 .15rem .45rem rgba(15, 23, 42, .07); transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+    .ut-system-card:hover { border-color: #3b82f6; box-shadow: 0 .45rem 1rem rgba(37, 99, 235, .16); transform: translateY(-1px); }
+    .ut-system-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: 1rem; background: #f8fafc; color: #1e3a8a; cursor: pointer; font-size: 1.15rem; font-weight: 750; text-align: left; transition: background-color .18s ease, color .18s ease; }
+    .ut-system-summary:hover { background: #eaf2ff; color: #0b57d0; }
+    .ut-system-summary::marker { color: #0d6efd; }
+    .ut-system-summary > span:first-child { text-align: left; }
+    .ut-system-summary .ut-system-meta { display: flex; align-items: center; gap: .5rem; color: #6c757d; font-size: .85rem; font-weight: 400; }
+    .ut-system-content { padding: .25rem 1rem .75rem; border-top: 1px solid #dee2e6; }
+    .ut-catalog-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; margin-left: calc(var(--tree-depth) * 1.1rem); padding: .65rem .5rem; border-bottom: 1px solid #edf0f2; border-radius: .4rem; transition: background-color .18s ease; }
+    .ut-catalog-item:hover { background: #f1f6ff; }
+    .ut-catalog-submodule { margin-bottom: .3rem; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; background: #eff6ff; }
+    .ut-catalog-item-name, .ut-catalog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    .ut-catalog-label { color: #1e3a8a; font-weight: 700; text-transform: uppercase; }
+    .ut-type-badge { display: inline-flex; align-items: center; padding: .24rem .55rem; border: 1px solid #93c5fd; border-radius: .35rem; background: #dbeafe; color: #1e40af; font-size: .72rem; font-weight: 800; letter-spacing: .04em; }
+    .ut-type-modulo { border-color: #1d4ed8; background: #1e40af; color: #fff; }
+    .ut-type-submodulo { border-color: #93c5fd; background: #dbeafe; color: #1e40af; }
+    .ut-catalog-actions { justify-content: flex-start; }
+    .ut-edit-panel { display: inline-block; }
+    .ut-edit-form { min-width: min(70vw, 850px); padding: .85rem; margin-top: .5rem; border: 1px solid #bfdbfe; border-radius: .55rem; background: #f8fbff; }
+    .ut-system-actions { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: .5rem; padding: 0 1rem .85rem; }
+    .ut-tree-guide { width: .8rem; height: 1px; flex: 0 0 .8rem; background: #adb5bd; }
+    .ut-access-row { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 18rem); align-items: center; gap: 1rem; }
+    .ut-system-picker-row { grid-template-columns: minmax(12rem, 1fr) minmax(10rem, auto) minmax(12rem, 18rem); }
+    .ut-access-name { min-width: 0; display: flex; align-items: center; gap: .5rem; }
+    .ut-access-level { max-width: 18rem; }
+    @media (max-width: 640px) {
+        .ut-cat-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .85rem; }
+        .ut-system-list { grid-template-columns: 1fr; }
+        .ut-access-row, .ut-system-picker-row { grid-template-columns: 1fr; gap: .35rem; }
+        .ut-access-level { margin-left: 1.5rem; }
+        .ut-system-summary { align-items: flex-start; }
+        .ut-edit-form { min-width: min(85vw, 520px); }
+    }
+</style>
+
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Cargos y sistemas asignados</span>
+</nav>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h3 class="fw-bold mb-1"><i class="bi bi-person-lock text-primary me-2"></i>CARGOS Y SISTEMAS ASIGNADOS</h3>
+            <p class="text-muted mb-0">Catálogo oficial de sistemas que maneja la UTI, perfiles requeridos por cargo y asignaciones por trabajador.</p>
+        </div>
+        {% if usuario_tiene_permiso('cargos_asignaciones', 'reportar') %}
+        <a href="{{ url_for('exportar_cargos_asignaciones_ut') }}" class="btn btn-success fw-bold">
+            <i class="bi bi-file-earmark-excel me-1"></i>Exportar reporte Excel
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="alert alert-info border-0 shadow-sm mb-4">
+    <strong><i class="bi bi-info-circle-fill me-1"></i> Alcance institucional:</strong>
+    Los accesos aquí definidos corresponden a los requerimientos oficiales propuestos por cargo para las actividades operativas y administrativas de la UTI.
+    SGD, Correo Electrónico y Mesa de Ayuda son de carácter institucional obligatorio para todo el personal.
+    Haga clic en cualquiera de los sistemas para entrar y <strong>aumentar submódulos o subsistemas</strong> según corresponda.
+</div>
+
+<!-- Barra de Pestañas Principales -->
+<ul class="nav nav-pills mb-4 gap-2 bg-light p-2 rounded-3 shadow-sm border" id="pills-tab-cargos" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold px-3 py-2 {% if tab_activo == 'catalogo' %}active{% endif %}" id="pills-catalogo-tab" data-bs-toggle="pill" data-bs-target="#pills-catalogo" type="button" role="tab">
+            <i class="bi bi-grid-3x3-gap-fill me-1"></i> 1. Catálogo de Sistemas UTI
+            <span class="badge bg-primary ms-1">{{ sistemas_catalogo|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold px-3 py-2 {% if tab_activo == 'perfiles' %}active{% endif %}" id="pills-perfiles-tab" data-bs-toggle="pill" data-bs-target="#pills-perfiles" type="button" role="tab">
+            <i class="bi bi-person-workspace me-1"></i> 2. Perfiles y Accesos por Cargo
+            <span class="badge bg-secondary ms-1">{{ perfiles|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold px-3 py-2 {% if tab_activo == 'reporte' %}active{% endif %}" id="pills-reporte-tab" data-bs-toggle="pill" data-bs-target="#pills-reporte" type="button" role="tab">
+            <i class="bi bi-list-check me-1"></i> 3. Reporte por Trabajador
+            <span class="badge bg-success ms-1">{{ total_trabajadores }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold px-3 py-2 {% if tab_activo == 'historial' %}active{% endif %}" id="pills-historial-tab" data-bs-toggle="pill" data-bs-target="#pills-historial" type="button" role="tab">
+            <i class="bi bi-clock-history me-1"></i> 4. Historial de Cambios
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="pills-tabContent-cargos">
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- PESTAÑA 1: CATÁLOGO DE SISTEMAS UTI CON BOTONES VISUALES     -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade {% if tab_activo == 'catalogo' %}show active{% endif %}" id="pills-catalogo" role="tabpanel">
+        
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body bg-light rounded p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <h5 class="fw-bold mb-1 text-primary"><i class="bi bi-cpu-fill me-2"></i>Sistemas Informáticos gestionados por la UTI</h5>
+                    <p class="text-muted small mb-0">Haga clic en cualquiera de los botones para entrar al sistema y aumentar sus submódulos o subsistemas.</p>
+                </div>
+                {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                <button class="btn btn-primary btn-sm fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#formNuevoSistema">
+                    <i class="bi bi-plus-lg me-1"></i> Agregar nuevo sistema al catálogo
+                </button>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+        <div class="collapse mb-4" id="formNuevoSistema">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h6 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Registrar nuevo sistema principal</h6>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('agregar_modulo_ut') }}" method="POST" class="row g-2 align-items-end">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="tipo" value="SISTEMA">
+                        <input type="hidden" name="redirigir" value="catalogo">
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold text-primary" for="nuevoSistemaNombre">Nombre del sistema</label>
+                            <input class="form-control" id="nuevoSistemaNombre" name="nombre" maxlength="120" placeholder="Ej: NUEVO SISTEMA" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold text-primary" for="nuevoSistemaTipo">Tipo de elemento</label>
+                            <select class="form-select" id="nuevoSistemaTipo" name="tipo">
+                                <option value="SISTEMA" selected>Sistema principal</option>
+                                <option value="APK">Aplicativo móvil (APK)</option>
+                                <option value="SERVICIO">Servicio / cuenta</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="sistemaObligatorioTodos" name="obligatorio_todos">
+                                <label class="form-check-label fw-semibold text-primary" for="sistemaObligatorioTodos">Obligatorio todos</label>
+                            </div>
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button class="btn btn-primary fw-bold" type="submit"><i class="bi bi-plus-lg me-1"></i>Crear</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- BOTONES VISUALES CON ICONOS DE LOS SISTEMAS -->
+        <div class="ut-cat-grid mb-4">
+            {% for sistema in sistemas_catalogo %}
+            <div class="ut-cat-card {% if sistema.obligatorio_todos %}ut-cat-obligatorio{% endif %}">
+                <!-- Barra superior de la tarjeta -->
+                <div class="d-flex justify-content-between align-items-center w-100 mb-2">
+                    <div>
+                        <span class="badge {% if sistema.obligatorio_todos %}bg-success{% else %}bg-secondary-subtle text-secondary-emphasis{% endif %}">
+                            {% if sistema.obligatorio_todos %}<i class="bi bi-check-circle-fill me-1"></i>Obligatorio{% else %}{{ sistema.tipo }}{% endif %}
+                        </span>
+                        {% if not sistema.activo %}
+                        <span class="badge bg-secondary ms-1">Inactivo</span>
+                        {% endif %}
+                    </div>
+                    {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" data-bs-toggle="modal" data-bs-target="#modalEditarSistema-{{ sistema.id }}" title="Modificar {{ sistema.nombre }}">
+                            <i class="bi bi-pencil-square"></i>
+                        </button>
+                        <form action="{{ url_for('eliminar_modulo_ut', modulo_id=sistema.id) }}" method="POST" class="d-inline" onsubmit="return confirm('¿Está seguro de eliminar definitivamente el sistema «{{ sistema.nombre }}»? Si tiene asignaciones históricas se requerirá desactivarlo.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="redirigir" value="catalogo">
+                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Eliminar {{ sistema.nombre }}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Cuerpo clicable que ingresa al sistema -->
+                <a href="{{ url_for('sistema_detalle_ut', sistema_id=sistema.id) }}" class="ut-cat-card-body" title="Entrar a {{ sistema.nombre }} para ver o aumentar submódulos">
+                    <div class="ut-cat-icon {{ sistema.icono_bg }} mb-2">
+                        <i class="bi {{ sistema.icono }}"></i>
+                    </div>
+                    <div class="ut-cat-title mb-1">{{ sistema.nombre }}</div>
+                    <div class="ut-cat-desc mb-2">{{ sistema.descripcion }}</div>
+                    <div>
+                        <span class="badge bg-primary-subtle text-primary">
+                            {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                                <i class="bi bi-phone me-1"></i>{{ sistema.cantidad_descendientes }} aplicativo{{ 's' if sistema.cantidad_descendientes != 1 else '' }} móvil{{ 'es' if sistema.cantidad_descendientes != 1 else '' }}
+                            {% elif sistema.cantidad_descendientes > 0 %}
+                                <i class="bi bi-folder2 me-1"></i>{{ sistema.cantidad_descendientes }} módulo{{ 's' if sistema.cantidad_descendientes != 1 else '' }}
+                            {% else %}
+                                <i class="bi bi-folder-x me-1"></i>Sin submódulos
+                            {% endif %}
+                        </span>
+                    </div>
+                </a>
+
+                <!-- Botones inferiores de la tarjeta -->
+                <div class="d-flex flex-column gap-1 w-100 mt-2 pt-2 border-top">
+                    <a href="{{ url_for('sistema_detalle_ut', sistema_id=sistema.id) }}" class="btn btn-primary btn-sm fw-bold">
+                        <i class="bi bi-box-arrow-in-right me-1"></i> Entrar al Sistema
+                    </a>
+                    {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                    <button type="button" class="btn btn-outline-success btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#modalAgregarHijo-{{ sistema.id }}">
+                        <i class="bi bi-plus-circle me-1"></i> {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Añadir APK{% else %}Añadir submódulo{% endif %}
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Modal Modificar Sistema -->
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+            <div class="modal fade" id="modalEditarSistema-{{ sistema.id }}" tabindex="-1" aria-labelledby="modalEditarSistemaLabel-{{ sistema.id }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content shadow border-0">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title fw-bold" id="modalEditarSistemaLabel-{{ sistema.id }}">
+                                <i class="bi bi-pencil-square me-2"></i>Modificar Sistema: {{ sistema.nombre }}
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                        </div>
+                        <form action="{{ url_for('editar_modulo_ut', modulo_id=sistema.id) }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="redirigir" value="catalogo">
+                            <div class="modal-body p-4">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" for="editNom-{{ sistema.id }}">Nombre del sistema</label>
+                                    <input type="text" class="form-control" id="editNom-{{ sistema.id }}" name="nombre" value="{{ sistema.nombre }}" maxlength="120" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" for="editTipo-{{ sistema.id }}">Tipo de elemento</label>
+                                    <select class="form-select" id="editTipo-{{ sistema.id }}" name="tipo" required>
+                                        <option value="SISTEMA" {% if sistema.tipo == 'SISTEMA' %}selected{% endif %}>Sistema principal</option>
+                                        <option value="APK" {% if sistema.tipo == 'APK' %}selected{% endif %}>Aplicativo móvil (APK)</option>
+                                        <option value="SERVICIO" {% if sistema.tipo == 'SERVICIO' %}selected{% endif %}>Servicio / cuenta</option>
+                                        <option value="MODULO" {% if sistema.tipo == 'MODULO' %}selected{% endif %}>Módulo</option>
+                                        <option value="SUBMODULO" {% if sistema.tipo == 'SUBMODULO' %}selected{% endif %}>Submódulo</option>
+                                    </select>
+                                </div>
+                                <div class="form-check p-3 bg-light rounded border">
+                                    <input class="form-check-input" type="checkbox" id="editOblig-{{ sistema.id }}" name="obligatorio_todos" {% if sistema.obligatorio_todos %}checked{% endif %}>
+                                    <label class="form-check-label fw-bold" for="editOblig-{{ sistema.id }}">
+                                        Requerido para todo el personal (institucional obligatorio)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="modal-footer bg-light">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="submit" class="btn btn-primary fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Agregar Hijo al Sistema -->
+            <div class="modal fade" id="modalAgregarHijo-{{ sistema.id }}" tabindex="-1" aria-labelledby="modalAgregarHijoLabel-{{ sistema.id }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content shadow border-0">
+                        <div class="modal-header bg-success text-white">
+                            <h5 class="modal-title fw-bold" id="modalAgregarHijoLabel-{{ sistema.id }}">
+                                <i class="bi bi-plus-circle me-2"></i>{% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Agregar APK a {{ sistema.nombre }}{% else %}Agregar elemento a {{ sistema.nombre }}{% endif %}
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                        </div>
+                        <form action="{{ url_for('agregar_modulo_ut') }}" method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="padre_id" value="{{ sistema.id }}">
+                            <input type="hidden" name="redirigir" value="catalogo">
+                            <div class="modal-body p-4">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" for="addHijoNom-{{ sistema.id }}">Nombre del elemento</label>
+                                    <input type="text" class="form-control" id="addHijoNom-{{ sistema.id }}" name="nombre" maxlength="120" placeholder="{% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Ej: APLICATIVO MOVIL: NUEVO APK{% else %}Ej: NUEVO MODULO{% endif %}" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold" for="addHijoTipo-{{ sistema.id }}">Tipo</label>
+                                    <select class="form-select" id="addHijoTipo-{{ sistema.id }}" name="tipo" required>
+                                        {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                                        <option value="APK" selected>APK / aplicativo móvil</option>
+                                        <option value="MODULO">Módulo</option>
+                                        <option value="SUBMODULO">Submódulo</option>
+                                        <option value="SERVICIO">Servicio / cuenta</option>
+                                        {% else %}
+                                        <option value="MODULO" selected>Módulo</option>
+                                        <option value="SUBMODULO">Submódulo</option>
+                                        <option value="APK">APK / aplicativo móvil</option>
+                                        <option value="SERVICIO">Servicio / cuenta</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                <div class="form-check p-3 bg-light rounded border">
+                                    <input class="form-check-input" type="checkbox" id="addHijoOblig-{{ sistema.id }}" name="obligatorio_todos">
+                                    <label class="form-check-label fw-bold" for="addHijoOblig-{{ sistema.id }}">
+                                        Requerido para todo el personal
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="modal-footer bg-light">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-plus-lg me-1"></i>Añadir elemento</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+
+        <!-- Vista en árbol opcional para referencia rápida -->
+        <details class="card border-0 shadow-sm mb-4">
+            <summary class="card-header bg-dark text-white fw-bold" style="cursor: pointer;">
+                <i class="bi bi-diagram-3-fill me-2"></i>Consultar árbol completo de módulos y submódulos (vista resumida)
+            </summary>
+            <div class="card-body">
+                <p class="small text-muted mb-3">Esta vista permite visualizar la jerarquía completa del catálogo para verificación global.</p>
+                <div class="ut-system-list">
+                    {% for sistema in arbol_catalogo if sistema.tipo == 'SISTEMA' %}
+                    <div class="ut-system-card">
+                        {% if sistema.hijos %}
+                        <details>
+                            <summary class="ut-system-summary">
+                                <span>{{ sistema.nombre }}</span>
+                                <span class="ut-system-meta"><span>{{ sistema.cantidad_descendientes }} módulo(s)</span></span>
+                            </summary>
+                            <div class="ut-system-content">
+                                {{ catalogo_descendientes(sistema.hijos) }}
+                            </div>
+                        </details>
+                        {% else %}
+                        <div class="ut-system-summary">
+                            <span>{{ sistema.nombre }}</span>
+                            <span class="ut-system-meta">{{ sistema.tipo }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% for sistema in arbol_catalogo if sistema.tipo != 'SISTEMA' %}
+                    <div class="ut-system-card">
+                        <div class="ut-system-summary"><span>{{ sistema.nombre }}</span><span class="ut-system-meta">{{ sistema.tipo }}</span></div>
+                        {% if sistema.hijos %}<div class="ut-system-content">{{ catalogo_descendientes(sistema.hijos) }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </details>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- PESTAÑA 2: PERFILES Y ACCESOS REQUERIDOS POR CARGO          -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade {% if tab_activo == 'perfiles' %}show active{% endif %}" id="pills-perfiles" role="tabpanel">
+
+        <section class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-person-workspace me-2"></i>Perfiles y accesos requeridos por cargo</h5>
+            </div>
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+            <div class="card-body border-bottom">
+                <h6 class="fw-bold">Agregar un cargo que aún no esté en el padrón</h6>
+                <form action="{{ url_for('agregar_perfil_cargo_ut') }}" method="POST" class="row g-2 align-items-end">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-md-3">
+                        <label class="form-label" for="nuevoPerfilCargo">Cargo o puesto según contrato / TDR</label>
+                        <input class="form-control" id="nuevoPerfilCargo" name="cargo" maxlength="160" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label" for="nuevoPerfilFunciones">Funciones principales según contrato / TDR</label>
+                        <input class="form-control" id="nuevoPerfilFunciones" name="funciones" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label" for="nuevoPerfilAutorizador">Responsable que valida o aprueba</label>
+                        <input class="form-control" id="nuevoPerfilAutorizador" name="autorizador" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label" for="nuevoPerfilJustificacion">Justificación de la creación</label>
+                        <input class="form-control" id="nuevoPerfilJustificacion" name="justificacion" required>
+                    </div>
+                    <div class="col-md-1 d-grid">
+                        <button class="btn btn-primary fw-bold" type="submit" title="Crear perfil"><i class="bi bi-plus-lg"></i></button>
+                    </div>
+                </form>
+                <small class="text-muted d-block mt-2">Al abrir el perfil, complete los módulos, niveles de acceso, reportes requeridos, acción y responsable de aprobación siguiendo el formulario institucional. Los cargos del padrón se agregan como pendientes de validación.</small>
+            </div>
+            {% endif %}
+
+            <div class="card-body">
+                {% for perfil in perfiles %}
+                <details class="border rounded mb-3">
+                    <summary class="p-3 d-flex flex-wrap justify-content-between align-items-center gap-2 bg-light">
+                        <span class="fw-bold">{{ perfil.cargo }}</span>
+                        <span class="d-flex flex-wrap gap-2 align-items-center">
+                            <span class="badge bg-secondary">{{ perfil.trabajadores_asignados }} trabajador(es)</span>
+                            <span class="badge bg-info text-dark">{{ perfil.modulos_asignados }} acceso(s) por cargo</span>
+                            {% if perfil.validado %}<span class="badge bg-success">Validado</span>{% else %}<span class="badge bg-warning text-dark">Pendiente de validación</span>{% endif %}
+                        </span>
+                    </summary>
+                    {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+                    <form action="{{ url_for('guardar_perfil_cargo_ut', perfil_id=perfil.id) }}" method="POST" class="p-3">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="row g-3 mb-3">
+                            <div class="col-lg-6">
+                                <label class="form-label fw-semibold" for="funciones-{{ perfil.id }}">Funciones principales asignadas (según contrato o TDR)</label>
+                                <textarea class="form-control" id="funciones-{{ perfil.id }}" name="funciones" rows="2" required>{{ perfil.funciones }}</textarea>
+                            </div>
+                            <div class="col-lg-6">
+                                <label class="form-label fw-semibold" for="reportes-{{ perfil.id }}">Reportes requeridos (tipo de información a obtener)</label>
+                                <textarea class="form-control" id="reportes-{{ perfil.id }}" name="reportes_requeridos" rows="2" maxlength="2000" required>{{ perfil.reportes_requeridos }}</textarea>
+                            </div>
+                            <div class="col-lg-3">
+                                <label class="form-label fw-semibold" for="autorizador-{{ perfil.id }}">Responsable que valida o aprueba la operación</label>
+                                <input class="form-control" id="autorizador-{{ perfil.id }}" name="autorizador" value="{{ perfil.autorizador }}" required>
+                            </div>
+                            <div class="col-lg-3">
+                                <label class="form-label fw-semibold" for="accion-{{ perfil.id }}">Acción sobre el acceso</label>
+                                <select class="form-select" id="accion-{{ perfil.id }}" name="accion_acceso" required>
+                                    {% for codigo, etiqueta in [('MANTENER', 'Mantener'), ('MODIFICAR', 'Modificar'), ('NUEVO', 'Nuevo'), ('RETIRAR', 'Retirar')] %}
+                                    <option value="{{ codigo }}" {% if perfil.accion_acceso == codigo %}selected{% endif %}>{{ etiqueta }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-lg-3">
+                                <label class="form-label fw-semibold" for="justificacion-{{ perfil.id }}">Justificación de esta validación</label>
+                                <input class="form-control" id="justificacion-{{ perfil.id }}" name="justificacion" required placeholder="Memorando, solicitud o sustento">
+                            </div>
+                        </div>
+                        <p class="small text-muted">Marque los sistemas y módulos que este cargo necesita. Los elementos de uso general obligatorio aparecen marcados por defecto.</p>
+                        <div class="ut-system-list mb-3">
+                            {% for sistema in arbol_modulos if sistema.tipo == 'SISTEMA' %}
+                            <div class="ut-system-card">
+                                <div class="ut-access-row ut-system-picker-row px-3">
+                                    <div class="ut-access-name">
+                                        <div class="form-check mb-0">
+                                            <input class="form-check-input" type="checkbox" id="perfil-{{ perfil.id }}-modulo-{{ sistema.id }}" name="modulo_id" value="{{ sistema.id }}" {% if sistema.obligatorio_todos %}checked disabled{% elif accesos_por_perfil.get(perfil.id, {}).get(sistema.id) %}checked{% endif %}>
+                                            <label class="form-check-label fw-bold" for="perfil-{{ perfil.id }}-modulo-{{ sistema.id }}">{{ sistema.nombre }}</label>
+                                        </div>
+                                    </div>
+                                    {% if sistema.hijos %}
+                                    <details>
+                                        <summary class="small text-primary fw-semibold">Ver {{ sistema.cantidad_descendientes }} módulo(s)</summary>
+                                        <div class="ut-system-content mt-2">
+                                            {{ acceso_descendientes(sistema.hijos, perfil.id, accesos_por_perfil.get(perfil.id, {}), niveles_acceso) }}
+                                        </div>
+                                    </details>
+                                    {% endif %}
+                                    <select class="form-select form-select-sm ut-access-level" name="nivel_{{ sistema.id }}" aria-label="Nivel de acceso para {{ sistema.nombre }}">
+                                        {% for codigo, etiqueta in niveles_acceso.items() %}
+                                        <option value="{{ codigo }}" {% if accesos_por_perfil.get(perfil.id, {}).get(sistema.id, 'CUENTA' if sistema.obligatorio_todos else 'LECTURA') == codigo %}selected{% endif %}>{{ etiqueta }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            {% endfor %}
+                            {% for sistema in arbol_modulos if sistema.tipo != 'SISTEMA' %}
+                            <div class="ut-system-card">
+                                <div class="ut-access-row px-3">
+                                    <div class="ut-access-name">
+                                        <div class="form-check mb-0">
+                                            <input class="form-check-input" type="checkbox" id="perfil-{{ perfil.id }}-modulo-{{ sistema.id }}" name="modulo_id" value="{{ sistema.id }}" {% if sistema.obligatorio_todos %}checked disabled{% elif accesos_por_perfil.get(perfil.id, {}).get(sistema.id) %}checked{% endif %}>
+                                            <label class="form-check-label fw-semibold" for="perfil-{{ perfil.id }}-modulo-{{ sistema.id }}">{{ sistema.nombre }}</label>
+                                            <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ sistema.tipo }}</span>
+                                        </div>
+                                    </div>
+                                    <select class="form-select form-select-sm ut-access-level" name="nivel_{{ sistema.id }}" aria-label="Nivel de acceso para {{ sistema.nombre }}">
+                                        {% for codigo, etiqueta in niveles_acceso.items() %}
+                                        <option value="{{ codigo }}" {% if accesos_por_perfil.get(perfil.id, {}).get(sistema.id, 'CUENTA' if sistema.obligatorio_todos else 'LECTURA') == codigo %}selected{% endif %}>{{ etiqueta }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                {% if sistema.hijos %}<div class="ut-system-content">{{ acceso_descendientes(sistema.hijos, perfil.id, accesos_por_perfil.get(perfil.id, {}), niveles_acceso) }}</div>{% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <button type="submit" class="btn btn-success fw-bold">
+                            <i class="bi bi-shield-check me-1"></i>Guardar y validar matriz de este cargo
+                        </button>
+                    </form>
+                    {% else %}
+                    <div class="p-3">
+                        <p><strong>Funciones:</strong> {{ perfil.funciones or 'Pendiente de registro' }}</p>
+                        <p><strong>Reportes requeridos:</strong> {{ perfil.reportes_requeridos or 'Pendiente de registro' }}</p>
+                        <p><strong>Acción:</strong> {{ {'MANTENER': 'Mantener', 'MODIFICAR': 'Modificar', 'NUEVO': 'Nuevo', 'RETIRAR': 'Retirar'}.get(perfil.accion_acceso, 'Nuevo') }}</p>
+                        <p><strong>Responsable:</strong> {{ perfil.autorizador or 'Pendiente de registro' }}</p>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for modulo in modulos %}
+                                {% set nivel = accesos_por_perfil.get(perfil.id, {}).get(modulo.id) %}
+                                {% if modulo.obligatorio_todos or nivel %}
+                                <span class="badge bg-primary-subtle text-primary-emphasis">{{ modulo.ruta }} · {{ niveles_acceso.get(nivel or 'CUENTA') }}</span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </details>
+                {% else %}
+                <p class="text-muted mb-0">No hay cargos registrados. Agréguelos al padrón de trabajadores o cree un perfil.</p>
+                {% endfor %}
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- PESTAÑA 3: REPORTE POR TRABAJADOR                           -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade {% if tab_activo == 'reporte' %}show active{% endif %}" id="pills-reporte" role="tabpanel">
+
+        <section class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-success text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>Reporte de sistemas y aplicativos requeridos por trabajador</h5>
+                <span class="badge bg-light text-dark">{{ total_trabajadores }} trabajador(es) activo(s)</span>
+            </div>
+            <div class="alert alert-warning rounded-0 mb-0 small">
+                Las asignaciones por trabajador son una copia de los sistemas y niveles del perfil validado de su cargo al momento del registro. Se aplican igual para CAS, OS u otro régimen; registrar la ficha no concede permisos en sistemas externos.
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light"><tr><th>Nombre del trabajador</th><th>Cargo</th><th>Sistemas / módulos / APK requeridos por cargo</th><th>Solicitud individual</th><th>Validación</th></tr></thead>
+                    <tbody>
+                        {% for trabajador in reporte_trabajadores %}
+                        <tr>
+                            <td class="fw-semibold">{{ trabajador.nombre }}</td>
+                            <td>{{ trabajador.cargo }}</td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1">
+                                    {% for acceso in trabajador.accesos %}
+                                    <span class="badge bg-primary-subtle text-primary-emphasis" title="Nivel: {{ acceso.nivel_nombre }}">{{ acceso.ruta }} · {{ acceso.nivel_nombre }}</span>
+                                    {% else %}
+                                    <span class="text-muted">Sin accesos registrados</span>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td>
+                                {% if trabajador.solicitud %}
+                                <details>
+                                    <summary class="text-primary fw-semibold">{{ trabajador.solicitud.modulos|length }} sistema(s) según cargo</summary>
+                                    <div class="small mt-2">
+                                        <div class="mb-1"><strong>Acción:</strong> {{ trabajador.solicitud.accion_nombre }}</div>
+                                        <div class="mb-1"><strong>Funciones:</strong> {{ trabajador.solicitud.funciones }}</div>
+                                        <div class="mb-1"><strong>Reportes:</strong> {{ trabajador.solicitud.reportes_requeridos }}</div>
+                                        <div class="mb-1"><strong>Valida:</strong> {{ trabajador.solicitud.autorizador }}</div>
+                                        <ul class="mb-0 ps-3">
+                                            {% for modulo in trabajador.solicitud.modulos %}
+                                            <li>{{ modulo.ruta }} · {{ modulo.nivel_nombre }}{% if modulo.estado_catalogo == 'INACTIVO' %} <span class="text-danger">(inactivo en catálogo)</span>{% endif %}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </details>
+                                {% else %}
+                                <span class="text-muted">Sin solicitud individual registrada</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if trabajador.estado_perfil == 'CONFIGURADO' %}<span class="badge bg-success">{{ trabajador.estado_perfil }}</span>
+                                {% else %}<span class="badge bg-warning text-dark">{{ trabajador.estado_perfil }}</span>{% endif %}
+                                {% if trabajador.solicitud %}
+                                <div><span class="badge bg-warning text-dark mt-1">{{ trabajador.solicitud.estado }}</span></div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="text-center text-muted py-4">No hay trabajadores activos en el padrón.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- PESTAÑA 4: HISTORIAL DE CAMBIOS                             -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade {% if tab_activo == 'historial' %}show active{% endif %}" id="pills-historial" role="tabpanel">
+
+        <section class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-secondary text-white fw-bold">
+                <i class="bi bi-clock-history me-2"></i>Historial de cambios de la matriz (últimos 30)
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-0">
+                    <thead><tr><th>Fecha</th><th>Cargo</th><th>Cambios</th><th>Justificación</th><th>Autorizado por</th><th>Registrado por</th></tr></thead>
+                    <tbody>
+                        {% for cambio in historial %}
+                        <tr>
+                            <td>{{ cambio.registrado_el }}</td>
+                            <td>{{ cambio.cargo }}</td>
+                            <td><code class="text-wrap">{{ cambio.cambios }}</code></td>
+                            <td>{{ cambio.justificacion }}</td>
+                            <td>{{ cambio.autorizado_por }}</td>
+                            <td>{{ cambio.usuario_nombre or 'Usuario retirado' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-3">Todavía no hay cambios registrados.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </div>
+
+</div>
+
+<script>
+    // Mantener la pestaña activa si se usa un hash o navegación
+    document.addEventListener("DOMContentLoaded", function() {
+        const hash = window.location.hash;
+        if (hash) {
+            const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
+            if (triggerEl) {
+                const tab = new bootstrap.Tab(triggerEl);
+                tab.show();
+            }
+        }
+    });
+</script>
+
+{% endblock %}

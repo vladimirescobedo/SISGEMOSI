@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, msg in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<style>
+    .ut-cat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1.35rem;
+    }
+    .ut-cat-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 250px;
+        padding: 1.25rem;
+        border: 2px solid #cbd5e1;
+        border-radius: 1.15rem;
+        background: #ffffff;
+        color: #1e293b;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
+        transition: all .24s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ut-cat-card:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 12px 28px rgba(37, 99, 235, .18);
+        transform: translateY(-4px);
+    }
+    .ut-cat-card:hover .ut-cat-icon {
+        transform: scale(1.08);
+    }
+    .ut-cat-card-body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        text-decoration: none;
+        color: inherit;
+        flex-grow: 1;
+        padding: .4rem 0;
+        cursor: pointer;
+    }
+    .ut-cat-card-body:hover .ut-cat-title {
+        color: #2563eb;
+    }
+    .ut-cat-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 70px;
+        height: 70px;
+        border-radius: 1.1rem;
+        font-size: 2.1rem;
+        color: #ffffff;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, .14);
+        transition: transform .24s ease;
+    }
+    .ut-cat-title {
+        font-size: 1.05rem;
+        font-weight: 800;
+        text-align: center;
+        letter-spacing: .02em;
+        line-height: 1.25;
+        transition: color .2s ease;
+    }
+    .ut-cat-desc {
+        font-size: .8rem;
+        color: #64748b;
+        text-align: center;
+        line-height: 1.35;
+    }
+    .ut-cat-obligatorio {
+        border-color: #10b981;
+        background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+    }
+
+    /* Color coding for system icon backgrounds */
+    .ut-bg-sigo       { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+    .ut-bg-sigdel     { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
+    .ut-bg-sgd        { background: linear-gradient(135deg, #059669, #047857); }
+    .ut-bg-sade       { background: linear-gradient(135deg, #d97706, #b45309); }
+    .ut-bg-correo     { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+    .ut-bg-mesa       { background: linear-gradient(135deg, #0891b2, #0e7490); }
+    .ut-bg-apk        { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .ut-bg-apk-est    { background: linear-gradient(135deg, #4f46e5, #4338ca); }
+    .ut-bg-apk-alm    { background: linear-gradient(135deg, #ea580c, #c2410c); }
+    .ut-bg-apk-iiee   { background: linear-gradient(135deg, #0d9488, #0f766e); }
+    .ut-bg-siga       { background: linear-gradient(135deg, #9333ea, #7e22ce); }
+    .ut-bg-siaf       { background: linear-gradient(135deg, #0284c7, #0369a1); }
+    .ut-bg-default    { background: linear-gradient(135deg, #475569, #334155); }
+
+    @media (max-width: 576px) {
+        .ut-cat-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+    <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+    <span class="mx-2 text-muted">/</span>
+    <span class="text-muted fw-bold">Catálogo de Sistemas UTI</span>
+</nav>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div>
+            <h3 class="fw-bold mb-1"><i class="bi bi-grid-3x3-gap-fill text-primary me-2"></i>CATÁLOGO DE SISTEMAS UTI</h3>
+            <p class="text-muted mb-0">Seleccione un sistema para gestionar sus módulos, submódulos y configuración de accesos por cargo.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'ver') %}
+            <a href="{{ url_for('cargos_asignaciones_ut') }}" class="btn btn-outline-primary fw-bold">
+                <i class="bi bi-person-lock me-1"></i>Matriz de cargos y accesos
+            </a>
+            {% endif %}
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'reportar') %}
+            <a href="{{ url_for('exportar_cargos_asignaciones_ut') }}" class="btn btn-success fw-bold">
+                <i class="bi bi-file-earmark-excel me-1"></i>Exportar reporte
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-info border-0 shadow-sm">
+    <strong><i class="bi bi-info-circle-fill me-1"></i> Sistemas gestionados por la UTI:</strong>
+    A continuación se muestran todos los sistemas informáticos del PAE. Haga clic en cualquier sistema para ver y administrar sus módulos, submódulos y asignaciones.
+    Los sistemas marcados con borde verde son <strong>obligatorios para todo el personal</strong>.
+</div>
+
+{% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-dark text-white">
+        <h6 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Agregar nuevo sistema al catálogo</h6>
+    </div>
+    <div class="card-body">
+        <form action="{{ url_for('agregar_modulo_ut') }}" method="POST" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="tipo" value="SISTEMA">
+            <input type="hidden" name="redirigir" value="catalogo">
+            <div class="col-md-5">
+                <label class="form-label fw-semibold text-primary" for="nuevoSistemaNombre">Nombre del nuevo sistema</label>
+                <input class="form-control" id="nuevoSistemaNombre" name="nombre" maxlength="120" placeholder="Ej: NUEVO SISTEMA" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold text-primary" for="nuevoSistemaTipo">Tipo de elemento</label>
+                <select class="form-select" id="nuevoSistemaTipo" name="tipo">
+                    <option value="SISTEMA" selected>Sistema principal</option>
+                    <option value="APK">Aplicativo móvil (APK)</option>
+                    <option value="SERVICIO">Servicio / cuenta</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="sistemaObligatorioTodos" name="obligatorio_todos">
+                    <label class="form-check-label fw-semibold text-primary" for="sistemaObligatorioTodos">Obligatorio todos</label>
+                </div>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button class="btn btn-primary fw-bold" type="submit"><i class="bi bi-plus-lg me-1"></i>Crear</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="ut-cat-grid mb-4">
+    {% for sistema in sistemas %}
+    <div class="ut-cat-card {% if sistema.obligatorio_todos %}ut-cat-obligatorio{% endif %}">
+        <!-- Barra superior de la tarjeta -->
+        <div class="d-flex justify-content-between align-items-center w-100 mb-2">
+            <div>
+                <span class="badge {% if sistema.obligatorio_todos %}bg-success{% else %}bg-secondary-subtle text-secondary-emphasis{% endif %}">
+                    {% if sistema.obligatorio_todos %}<i class="bi bi-check-circle-fill me-1"></i>Obligatorio{% else %}{{ sistema.tipo }}{% endif %}
+                </span>
+                {% if not sistema.activo %}
+                <span class="badge bg-secondary ms-1">Inactivo</span>
+                {% endif %}
+            </div>
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+            <div class="btn-group btn-group-sm">
+                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" data-bs-toggle="modal" data-bs-target="#modalEditarSistemaCat-{{ sistema.id }}" title="Modificar {{ sistema.nombre }}">
+                    <i class="bi bi-pencil-square"></i>
+                </button>
+                <form action="{{ url_for('eliminar_modulo_ut', modulo_id=sistema.id) }}" method="POST" class="d-inline" onsubmit="return confirm('¿Está seguro de eliminar definitivamente el sistema «{{ sistema.nombre }}»? Si tiene asignaciones históricas se requerirá desactivarlo.');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="redirigir" value="catalogo">
+                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Eliminar {{ sistema.nombre }}">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Cuerpo clicable que ingresa al sistema -->
+        <a href="{{ url_for('sistema_detalle_ut', sistema_id=sistema.id) }}" class="ut-cat-card-body" title="Entrar a {{ sistema.nombre }} para ver o aumentar submódulos">
+            <div class="ut-cat-icon {{ sistema.icono_bg }} mb-2">
+                <i class="bi {{ sistema.icono }}"></i>
+            </div>
+            <div class="ut-cat-title mb-1">{{ sistema.nombre }}</div>
+            <div class="ut-cat-desc mb-2">{{ sistema.descripcion }}</div>
+            <div>
+                <span class="badge bg-primary-subtle text-primary">
+                    {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                        <i class="bi bi-phone me-1"></i>{{ sistema.cantidad_descendientes or sistema.cantidad_hijos or 4 }} aplicativo(s) móvil(es)
+                    {% elif (sistema.cantidad_descendientes or sistema.cantidad_hijos or 0) > 0 %}
+                        <i class="bi bi-folder2 me-1"></i>{{ sistema.cantidad_descendientes or sistema.cantidad_hijos }} módulo(s)
+                    {% else %}
+                        <i class="bi bi-folder-x me-1"></i>Sin submódulos
+                    {% endif %}
+                </span>
+            </div>
+        </a>
+
+        <!-- Botones inferiores de la tarjeta -->
+        <div class="d-flex flex-column gap-1 w-100 mt-2 pt-2 border-top">
+            <a href="{{ url_for('sistema_detalle_ut', sistema_id=sistema.id) }}" class="btn btn-primary btn-sm fw-bold">
+                <i class="bi bi-box-arrow-in-right me-1"></i> Entrar al Sistema
+            </a>
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+            <button type="button" class="btn btn-outline-success btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#modalAgregarHijoCat-{{ sistema.id }}">
+                <i class="bi bi-plus-circle me-1"></i> {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Añadir APK{% else %}Añadir submódulo{% endif %}
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal Modificar Sistema -->
+    {% if usuario_tiene_permiso('cargos_asignaciones', 'modificar') %}
+    <div class="modal fade" id="modalEditarSistemaCat-{{ sistema.id }}" tabindex="-1" aria-labelledby="modalEditarSistemaCatLabel-{{ sistema.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow border-0">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold" id="modalEditarSistemaCatLabel-{{ sistema.id }}">
+                        <i class="bi bi-pencil-square me-2"></i>Modificar Sistema: {{ sistema.nombre }}
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <form action="{{ url_for('editar_modulo_ut', modulo_id=sistema.id) }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="redirigir" value="catalogo">
+                    <div class="modal-body p-4">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" for="editNomCat-{{ sistema.id }}">Nombre del sistema</label>
+                            <input type="text" class="form-control" id="editNomCat-{{ sistema.id }}" name="nombre" value="{{ sistema.nombre }}" maxlength="120" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" for="editTipoCat-{{ sistema.id }}">Tipo de elemento</label>
+                            <select class="form-select" id="editTipoCat-{{ sistema.id }}" name="tipo" required>
+                                <option value="SISTEMA" {% if sistema.tipo == 'SISTEMA' %}selected{% endif %}>Sistema principal</option>
+                                <option value="APK" {% if sistema.tipo == 'APK' %}selected{% endif %}>Aplicativo móvil (APK)</option>
+                                <option value="SERVICIO" {% if sistema.tipo == 'SERVICIO' %}selected{% endif %}>Servicio / cuenta</option>
+                                <option value="MODULO" {% if sistema.tipo == 'MODULO' %}selected{% endif %}>Módulo</option>
+                                <option value="SUBMODULO" {% if sistema.tipo == 'SUBMODULO' %}selected{% endif %}>Submódulo</option>
+                            </select>
+                        </div>
+                        <div class="form-check p-3 bg-light rounded border">
+                            <input class="form-check-input" type="checkbox" id="editObligCat-{{ sistema.id }}" name="obligatorio_todos" {% if sistema.obligatorio_todos %}checked{% endif %}>
+                            <label class="form-check-label fw-bold" for="editObligCat-{{ sistema.id }}">
+                                Requerido para todo el personal (institucional obligatorio)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary fw-bold"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Agregar Hijo al Sistema -->
+    <div class="modal fade" id="modalAgregarHijoCat-{{ sistema.id }}" tabindex="-1" aria-labelledby="modalAgregarHijoCatLabel-{{ sistema.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow border-0">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title fw-bold" id="modalAgregarHijoCatLabel-{{ sistema.id }}">
+                        <i class="bi bi-plus-circle me-2"></i>{% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Agregar APK a {{ sistema.nombre }}{% else %}Agregar elemento a {{ sistema.nombre }}{% endif %}
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <form action="{{ url_for('agregar_modulo_ut') }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="padre_id" value="{{ sistema.id }}">
+                    <input type="hidden" name="redirigir" value="catalogo">
+                    <div class="modal-body p-4">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" for="addHijoNomCat-{{ sistema.id }}">Nombre del elemento</label>
+                            <input type="text" class="form-control" id="addHijoNomCat-{{ sistema.id }}" name="nombre" maxlength="120" placeholder="{% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}Ej: APLICATIVO MOVIL: NUEVO APK{% else %}Ej: NUEVO MODULO{% endif %}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold" for="addHijoTipoCat-{{ sistema.id }}">Tipo</label>
+                            <select class="form-select" id="addHijoTipoCat-{{ sistema.id }}" name="tipo" required>
+                                {% if sistema.nombre in ['APK - APLICATIVOS MOBILES', 'APK - APLICATIVOS MOVILES'] %}
+                                <option value="APK" selected>APK / aplicativo móvil</option>
+                                <option value="MODULO">Módulo</option>
+                                <option value="SUBMODULO">Submódulo</option>
+                                <option value="SERVICIO">Servicio / cuenta</option>
+                                {% else %}
+                                <option value="MODULO" selected>Módulo</option>
+                                <option value="SUBMODULO">Submódulo</option>
+                                <option value="APK">APK / aplicativo móvil</option>
+                                <option value="SERVICIO">Servicio / cuenta</option>
+                                {% endif %}
+                            </select>
+                        </div>
+                        <div class="form-check p-3 bg-light rounded border">
+                            <input class="form-check-input" type="checkbox" id="addHijoObligCat-{{ sistema.id }}" name="obligatorio_todos">
+                            <label class="form-check-label fw-bold" for="addHijoObligCat-{{ sistema.id }}">
+                                Requerido para todo el personal
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success fw-bold"><i class="bi bi-plus-lg me-1"></i>Añadir elemento</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+
+{% endblock %}

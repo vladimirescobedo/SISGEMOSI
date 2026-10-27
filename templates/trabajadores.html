@@ -39,6 +39,11 @@
             <p class="text-muted mb-0 small">Directorio general del personal de la Unidad Territorial Apurímac.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
+            {% if usuario_tiene_permiso('cargos_asignaciones', 'ver') %}
+            <a href="{{ url_for('cargos_asignaciones_ut') }}" class="btn btn-outline-primary fw-bold shadow-sm">
+                <i class="bi bi-diagram-3 me-1"></i>Cargos y sistemas asignados
+            </a>
+            {% endif %}
             <button class="btn btn-primary fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoTrabajador">
                 <i class="bi bi-person-plus-fill me-1"></i> Nuevo Trabajador
             </button>
@@ -151,6 +156,9 @@
                         <td><small class="fw-bold">{{ t.fecha_nacimiento or '-' }}</small></td>
                         <td class="text-center">
                             <div class="btn-group" role="group">
+                                <a class="btn btn-sm btn-outline-success" title="Generar ficha de sistemas y permisos" href="{{ url_for('ficha_accesos_trabajador', trabajador_id=t.id) }}">
+                                    <i class="bi bi-file-earmark-pdf"></i> Generar ficha
+                                </a>
                                 <button class="btn btn-sm btn-outline-primary" title="Editar Trabajador"
                                     onclick="abrirModalEditar('{{ t.id }}', '{{ t.dni }}', '{{ t.nombres }}', '{{ t.apellido_paterno }}', '{{ t.apellido_materno }}', '{{ t.cargo or '' }}', '{{ t.tipo_contrato or '' }}', '{{ t.telefono or '' }}', '{{ t.celular_institucional or '' }}', '{{ t.correo_institucional or '' }}', '{{ t.correo_personal or '' }}', '{{ t.fecha_nacimiento or '' }}')">
                                     <i class="bi bi-pencil-square"></i>
@@ -168,8 +176,9 @@
                                 <a class="btn btn-sm btn-outline-success" title="Descargar contrato CAS" href="/trabajadores/contrato/{{ contratos_por_trabajador[t.id]['CAS']['id'] }}"><i class="bi bi-download"></i> CAS</a>
                                 {% endif %}
                                 {% if session.get('rol') == 'ADMIN' %}
-                                <button class="btn btn-sm btn-outline-danger" title="Desactivar Trabajador"
-                                    onclick="abrirModalEliminar('{{ t.id }}', '{{ t.nombres }} {{ t.apellido_paterno }}', '{{ t.dni }}')">
+                                <button class="btn btn-sm btn-outline-danger btn-eliminar-trabajador" title="Desactivar Trabajador"
+                                    data-id="{{ t.id }}" data-nombre="{{ t.nombres }} {{ t.apellido_paterno }}" data-dni="{{ t.dni }}"
+                                    data-bienes='{{ bienes_activos_por_trabajador.get(t.id, [])|tojson }}'>
                                     <i class="bi bi-trash"></i>
                                 </button>
                                 {% endif %}
@@ -207,6 +216,9 @@
                 <td class="fw-bold">{{ t.apellido_paterno }} {{ t.apellido_materno }}, {{ t.nombres }}</td>
                 <td>{{ t.cargo or '-' }}</td><td>{{ t.tipo_contrato or '-' }}</td>
                 <td class="text-center">
+                    <a class="btn btn-sm btn-outline-success" title="Generar ficha de sistemas y permisos" href="{{ url_for('ficha_accesos_trabajador', trabajador_id=t.id) }}">
+                        <i class="bi bi-file-earmark-pdf"></i> Generar ficha
+                    </a>
                     <form method="POST" action="/trabajadores/cambiar-estado/{{ t.id }}" class="d-inline">
                         <button class="btn btn-sm btn-outline-success" title="Activar trabajador"><i class="bi bi-person-check"></i> Activar</button>
                     </form>
@@ -294,8 +306,8 @@
 
 <!-- Modal: NUEVO TRABAJADOR -->
 <div class="modal fade" id="modalNuevoTrabajador" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <form action="/trabajadores/nuevo" method="POST" class="modal-content">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <form id="formNuevoTrabajador" action="/trabajadores/nuevo" method="POST" class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title fw-bold"><i class="bi bi-person-plus-fill me-2"></i>Registrar Nuevo Trabajador</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -303,7 +315,7 @@
             <div class="modal-body row g-3">
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-person-vcard me-1 text-primary"></i>DNI *</label>
-                    <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" maxlength="15">
+                    <input type="text" name="dni" class="form-control" required placeholder="8 dígitos" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" title="Ingrese exactamente 8 números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 8)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Nombres *</label>
@@ -318,22 +330,25 @@
                     <input type="text" name="apellido_materno" class="form-control" required placeholder="Materno">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-bold"><i class="bi bi-person-workspace me-1 text-primary"></i>Cargo</label>
-                    <input type="text" name="cargo" class="form-control" placeholder="Ej: Especialista, Asistente...">
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Tipo de Contrato</label>
-                    <select name="tipo_contrato" class="form-select">
-                        <option value="">-- Seleccione --</option><option value="OS">OS (Orden de Servicio)</option><option value="CAS">CAS (Contrato Administrativo de Servicio)</option><option value="LEY N° 725">LEY N° 725</option>
+                    <label class="form-label fw-bold"><i class="bi bi-person-workspace me-1 text-primary"></i>Cargo y perfil de accesos *</label>
+                    <select name="perfil_cargo_id" id="nuevoPerfilCargoId" class="form-select" required>
+                        <option value="">-- Seleccione un cargo validado --</option>
+                        {% for perfil in perfiles_cargo_nuevo %}
+                        <option value="{{ perfil.id }}">{{ perfil.cargo }} · {{ perfil.asignaciones|length }} accesos</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-4">
+                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Contrato / régimen laboral</label>
+                    <input type="text" name="tipo_contrato" class="form-control" maxlength="100" placeholder="CAS, OS, DL 276, DL 728 u otro">
+                </div>
+                <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-telephone me-1 text-primary"></i>Número de Teléfono</label>
-                    <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456">
+                    <input type="text" name="telefono" class="form-control" placeholder="Ej: 983123456" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
-                    <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777">
+                    <input type="text" name="celular_institucional" class="form-control" placeholder="Ej: 999888777" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-envelope-at me-1 text-primary"></i>Correo Institucional</label>
@@ -345,12 +360,32 @@
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha de Nacimiento</label>
-                    <input type="text" name="fecha_nacimiento" class="form-control" placeholder="DD/MM/AAAA">
+                    <input type="date" name="fecha_nacimiento" class="form-control">
+                </div>
+                <div class="col-12">
+                    <div class="alert alert-info mb-2">
+                        <strong><i class="bi bi-shield-check me-1"></i>Accesos automáticos según el cargo</strong>
+                        <div class="small">Primero defina y valide los sistemas y permisos del cargo en “Cargos y sistemas asignados”. Al seleccionar el cargo se cargarán aquí; el contrato o régimen no limita la selección.</div>
+                    </div>
+                    {% if not perfiles_cargo_nuevo %}
+                    <div class="alert alert-warning">
+                        No hay cargos con una matriz validada. Configure los accesos por cargo antes de registrar personal.
+                        {% if usuario_tiene_permiso('cargos_asignaciones', 'ver') %}
+                        <a href="{{ url_for('cargos_asignaciones_ut') }}" class="alert-link">Ir a Cargos y sistemas asignados</a>.
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    <div id="resumenAccesosCargo" class="border rounded p-3 d-none">
+                        <div class="fw-bold mb-2" id="resumenFuncionesCargo"></div>
+                        <div class="small text-muted mb-2">Sistemas y niveles heredados de la matriz validada:</div>
+                        <ul id="listaAccesosCargo" class="mb-2"></ul>
+                        <div class="small"><strong>Responsable que valida:</strong> <span id="responsableAccesosCargo"></span></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="submit" class="btn btn-primary fw-bold">Guardar Trabajador</button>
+                <button type="submit" class="btn btn-primary fw-bold" {% if not perfiles_cargo_nuevo %}disabled{% endif %}>Guardar Trabajador</button>
             </div>
         </form>
     </div>
@@ -369,7 +404,7 @@
                 
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-person-vcard me-1 text-primary"></i>DNI *</label>
-                    <input type="text" name="dni" id="edit_dni" class="form-control" required maxlength="15">
+                    <input type="text" name="dni" id="edit_dni" class="form-control" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" title="Ingrese exactamente 8 números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 8)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label fw-bold"><i class="bi bi-person me-1 text-primary"></i>Nombres *</label>
@@ -388,18 +423,16 @@
                     <input type="text" name="cargo" id="edit_cargo" class="form-control">
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Tipo de Contrato</label>
-                    <select name="tipo_contrato" id="edit_contrato" class="form-select">
-                        <option value="">-- Seleccione --</option><option value="OS">OS (Orden de Servicio)</option><option value="CAS">CAS (Contrato Administrativo de Servicio)</option><option value="LEY N° 725">LEY N° 725</option>
-                    </select>
+                    <label class="form-label"><i class="bi bi-file-earmark-text me-1 text-primary"></i>Contrato / régimen laboral</label>
+                    <input type="text" name="tipo_contrato" id="edit_contrato" class="form-control" maxlength="100" placeholder="CAS, OS, DL 276, DL 728 u otro">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-telephone me-1 text-primary"></i>Número de Teléfono</label>
-                    <input type="text" name="telefono" id="edit_telefono" class="form-control">
+                    <input type="text" name="telefono" id="edit_telefono" class="form-control" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-phone me-1 text-primary"></i>Celular Institucional</label>
-                    <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control">
+                    <input type="text" name="celular_institucional" id="edit_celular_institucional" class="form-control" inputmode="numeric" pattern="[0-9]{1,15}" maxlength="15" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 15)">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-envelope-at me-1 text-primary"></i>Correo Institucional</label>
@@ -411,7 +444,7 @@
                 </div>
                 <div class="col-md-4">
                     <label class="form-label"><i class="bi bi-calendar3 me-1 text-primary"></i>Fecha de Nacimiento</label>
-                    <input type="text" name="fecha_nacimiento" id="edit_f_nac" class="form-control" placeholder="DD/MM/AAAA">
+                    <input type="date" name="fecha_nacimiento" id="edit_f_nac" class="form-control">
                 </div>
             </div>
             <div class="modal-footer">
@@ -432,11 +465,15 @@
             </div>
             <div class="modal-body">
                 <p>¿Está seguro de desactivar al trabajador <strong id="eliminar_nombre"></strong>?</p>
+                <div class="alert alert-warning mb-2" id="alertaBienesAsignados" role="alert">
+                    <strong id="mensajeBienesAsignados"></strong>
+                    <ul id="listaBienesAsignados" class="mb-0 mt-2 ps-3"></ul>
+                </div>
                 <small class="text-muted">Se conservarán sus datos en la pestaña Trabajadores Antiguos y podrá activarlo después.</small>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="submit" class="btn btn-danger fw-bold">Sí, Eliminar</button>
+                <button type="submit" id="confirmarEliminarTrabajador" class="btn btn-danger fw-bold">Sí, desactivar</button>
             </div>
         </form>
     </div>
@@ -444,6 +481,7 @@
 
 <script>
 var ordenTrabajadores = {};
+const perfilesCargoUT = {{ perfiles_cargo_nuevo|tojson }};
 
 // Cargar opciones dinámicas de cargos y contratos al iniciar
 document.addEventListener('DOMContentLoaded', function() {
@@ -465,7 +503,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let selContrato = document.getElementById('filtroContrato');
     contratosSet.forEach(c => selContrato.add(new Option(c, c)));
+
+    document.getElementById('nuevoPerfilCargoId').addEventListener('change', mostrarAccesosDelCargo);
 });
+
+function mostrarAccesosDelCargo() {
+    const perfilId = document.getElementById('nuevoPerfilCargoId').value;
+    const perfil = perfilesCargoUT.find(item => String(item.id) === perfilId);
+    const resumen = document.getElementById('resumenAccesosCargo');
+    const lista = document.getElementById('listaAccesosCargo');
+    lista.replaceChildren();
+    if (!perfil) {
+        resumen.classList.add('d-none');
+        return;
+    }
+    document.getElementById('resumenFuncionesCargo').textContent =
+        'Funciones del cargo: ' + perfil.funciones;
+    document.getElementById('responsableAccesosCargo').textContent =
+        perfil.autorizador;
+    perfil.asignaciones.forEach(asignacion => {
+        const elemento = document.createElement('li');
+        elemento.textContent = asignacion.ruta + ' — ' + asignacion.nivel_nombre;
+        lista.appendChild(elemento);
+    });
+    resumen.classList.remove('d-none');
+}
 
 function filtrarTablaTrabajadores() {
     let txt = document.getElementById('buscadorTrabajadores').value.toLowerCase().trim();
@@ -548,13 +610,61 @@ function abrirModalEditar(id, dni, nombres, paterno, materno, cargo, contrato, t
     document.getElementById('edit_celular_institucional').value = celularInstitucional;
     document.getElementById('edit_c_inst').value = c_inst;
     document.getElementById('edit_c_pers').value = c_pers;
-    document.getElementById('edit_f_nac').value = f_nac;
+    const fechaNacimiento = /^\d{4}-\d{2}-\d{2}$/.test(f_nac)
+        ? f_nac
+        : (/^\d{2}\/\d{2}\/\d{4}$/.test(f_nac) ? f_nac.split('/').reverse().join('-') : '');
+    document.getElementById('edit_f_nac').value = fechaNacimiento;
     new bootstrap.Modal(document.getElementById('modalEditarTrabajador')).show();
 }
 
-function abrirModalEliminar(id, nombre, dni) {
+document.addEventListener('click', function(event) {
+    const boton = event.target.closest('.btn-eliminar-trabajador');
+    if (!boton) return;
+    abrirModalEliminar(boton.dataset.id, boton.dataset.nombre, boton.dataset.dni, boton.dataset.bienes);
+});
+
+function abrirModalEliminar(id, nombre, dni, bienesJson) {
     document.getElementById('formEliminar').action = '/trabajadores/eliminar/' + id;
     document.getElementById('eliminar_nombre').innerText = nombre + ' (DNI: ' + dni + ')';
+    const alerta = document.getElementById('alertaBienesAsignados');
+    const mensaje = document.getElementById('mensajeBienesAsignados');
+    const lista = document.getElementById('listaBienesAsignados');
+    const confirmar = document.getElementById('confirmarEliminarTrabajador');
+    let bienes = [];
+    try {
+        bienes = JSON.parse(bienesJson || '[]');
+    } catch (error) {
+        bienes = [];
+    }
+    lista.replaceChildren();
+    if (bienes.length) {
+        alerta.className = 'alert alert-danger mb-2';
+        mensaje.textContent = 'Debe registrar la devolución de estos bienes antes de desactivar al trabajador:';
+        bienes.forEach(function(bien) {
+            const nombresCategoria = {
+                MOVILES: 'Celulares y equipos móviles',
+                TOKENS: 'Tokens y firmas digitales',
+                INFORMATICOS: 'Equipos informáticos',
+                MOBILIARIO: 'Mobiliario institucional'
+            };
+            const detalles = [nombresCategoria[bien.categoria] || bien.categoria,
+                bien.codigo_margesi && 'Código: ' + bien.codigo_margesi,
+                bien.descripcion, bien.marca, bien.modelo,
+                bien.numero_serie && 'Serie: ' + bien.numero_serie,
+                bien.celular_institucional && 'Línea: ' + bien.celular_institucional]
+                .filter(Boolean).join(' | ');
+            const elemento = document.createElement('li');
+            elemento.textContent = detalles || 'Equipo informático sin descripción';
+            lista.appendChild(elemento);
+        });
+        confirmar.disabled = true;
+        confirmar.textContent = 'Pendiente de devolución';
+    } else {
+        alerta.className = 'alert alert-success mb-2';
+        mensaje.textContent = 'No tiene bienes institucionales pendientes de devolución.';
+        confirmar.disabled = false;
+        confirmar.textContent = 'Sí, desactivar';
+    }
     new bootstrap.Modal(document.getElementById('modalEliminarTrabajador')).show();
 }
 
@@ -574,5 +684,12 @@ function validarExportacionTrabajadores(event) {
     }
     return true;
 }
+
+document.getElementById('formNuevoTrabajador').addEventListener('submit', function(event) {
+    if (!document.getElementById('nuevoPerfilCargoId').value) {
+        event.preventDefault();
+        alert('Seleccione un cargo con matriz de accesos validada.');
+    }
+});
 </script>
 {% endblock %}

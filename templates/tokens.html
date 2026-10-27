@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+    <nav class="breadcrumb-sisgemosi mb-3 no-print" aria-label="breadcrumb">
+        <a href="/"><i class="bi bi-house-door me-1"></i>Inicio</a>
+        <span class="mx-2 text-muted">/</span>
+        <span class="text-muted fw-bold">Gestión de Tokens y Certificados Digitales</span>
+    </nav>
+
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <h3 class="fw-bold text-primary mb-1"><i class="bi bi-key-fill me-2"></i>Gestión de Tokens y Certificados Digitales</h3>
+                <p class="text-muted mb-0">Registro de vigencias, renovación y retiro de certificados de trabajadores y participantes externos.</p>
+            </div>
+            <div class="d-flex flex-wrap gap-2 no-print">
+                {% if usuario_tiene_permiso('tokens', 'modificar') %}
+                <button class="btn btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#modalNuevoCertificado">
+                    <i class="bi bi-plus-circle me-1"></i> Registrar certificado
+                </button>
+                {% endif %}
+                {% if usuario_tiene_permiso('tokens', 'reportar') %}
+                <a class="btn btn-outline-success" href="{{ url_for('exportar_tokens_excel', estado=filtro) }}">
+                    <i class="bi bi-file-earmark-arrow-down me-1"></i> Descargar Excel
+                </a>
+                {% endif %}
+                {% if usuario_tiene_permiso('tokens', 'modificar') %}
+                <form action="{{ url_for('importar_tokens_excel') }}" method="POST" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
+                    <input type="file" name="archivo_excel_tokens" class="form-control form-control-sm" accept=".xlsx" required aria-label="Archivo Excel de certificados">
+                    <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap">
+                        <i class="bi bi-file-earmark-arrow-up me-1"></i> Importar Excel
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% if usuario_tiene_permiso('tokens', 'modificar') %}
+        <div class="card-footer bg-light small text-muted">
+            Excel .xlsx: encabezados requeridos DNI, apellidos, nombres, tipo de certificado, fecha de inicio y fecha de expiración.
+            Los participantes externos se registran directamente desde los datos del archivo.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="card h-100 border-0 border-start border-4 border-primary shadow-sm">
+                <div class="card-body"><div class="text-muted fw-bold">VIGENTES HOY</div><div class="display-6 fw-bold text-primary">{{ total_activos }}</div></div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 border-0 border-start border-4 border-danger shadow-sm">
+                <div class="card-body"><div class="text-muted fw-bold">REQUIEREN REVISIÓN</div><div class="display-6 fw-bold text-danger">{{ total_alertas }}</div><small class="text-muted">Vencidos o vencen en {{ dias_alerta }} días o menos.</small></div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 border-0 border-start border-4 border-secondary shadow-sm">
+                <div class="card-body"><div class="text-muted fw-bold">CERTIFICADOS RETIRADOS</div><div class="display-6 fw-bold text-secondary">{{ total_retirados }}</div></div>
+            </div>
+        </div>
+    </div>
+
+    {% if alertas %}
+    <div class="card border-danger shadow-sm mb-4">
+        <div class="card-header bg-danger text-white fw-bold">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>ALERTAS DE CADUCIDAD — definir renovación o retiro
+        </div>
+        <div class="list-group list-group-flush">
+            {% for cert in alertas %}
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <strong>{{ cert.apellido_paterno }} {{ cert.apellido_materno }}, {{ cert.nombres }}</strong>
+                    <span class="badge bg-dark ms-1">DNI: {{ cert.dni }}</span>
+                    <div class="small text-muted">{{ cert.tipo_certificado }} · Caduca {{ cert.fecha_caducidad_display }}</div>
+                </div>
+                {% if cert.dias_restantes < 0 %}
+                    <span class="badge bg-danger">Vencido hace {{ cert.dias_restantes|abs }} días</span>
+                {% elif cert.dias_restantes == 0 %}
+                    <span class="badge bg-danger">Caduca hoy</span>
+                {% else %}
+                    <span class="badge bg-warning text-dark">Caduca en {{ cert.dias_restantes }} días</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h5 class="mb-0"><i class="bi bi-card-list me-2"></i>Listado de certificados</h5>
+            <span class="small text-white-50">La alerta aparece {{ dias_alerta }} días antes de la caducidad.</span>
+        </div>
+        <div class="card-body border-bottom no-print">
+            <div class="row g-2">
+                <div class="col-md-8">
+                    <input type="search" id="buscarCertificado" class="form-control" placeholder="Buscar por DNI, nombres, oficina, correo o tipo de certificado">
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select" onchange="window.location.href='{{ url_for('ver_tokens') }}?estado='+encodeURIComponent(this.value)">
+                        <option value="ACTIVOS" {% if filtro == 'ACTIVOS' %}selected{% endif %}>Certificados vigentes y vencidos</option>
+                        <option value="ALERTAS" {% if filtro == 'ALERTAS' %}selected{% endif %}>Solo por vencer o vencidos</option>
+                        <option value="RETIRADOS" {% if filtro == 'RETIRADOS' %}selected{% endif %}>Retirados</option>
+                        <option value="TODOS" {% if filtro == 'TODOS' %}selected{% endif %}>Todos</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover table-striped align-middle mb-0" id="tablaCertificados">
+                <thead class="table-dark">
+                    <tr>
+                        <th>N°</th><th>DNI</th><th>APELL. PATERNO</th><th>APELL. MATERNO</th>
+                        <th>NOMBRES</th><th>CARGO</th><th>OFICINA</th><th>CORREO</th>
+                        <th>TITULAR</th><th>N° RESOLUCIÓN</th>
+                        <th>TIPO CERTIFICADO</th><th>FECHA INICIO</th><th>FECHA EXPIRACIÓN</th>
+                        <th>ESTADO / ALERTA</th><th class="no-print">ACCIONES</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cert in certificados %}
+                    <tr data-busqueda="{{ cert.dni }} {{ cert.apellido_paterno }} {{ cert.apellido_materno }} {{ cert.nombres }} {{ cert.cargo }} {{ cert.oficina }} {{ cert.correo }} {{ cert.numero_resolucion }} {{ cert.tipo_certificado }}">
+                        <td>{{ loop.index }}</td>
+                        <td class="fw-bold">{{ cert.dni }}</td>
+                        <td>{{ cert.apellido_paterno }}</td>
+                        <td>{{ cert.apellido_materno }}</td>
+                        <td>{{ cert.nombres }}</td>
+                        <td>{{ cert.cargo or '-' }}</td>
+                        <td>{{ cert.oficina or '-' }}</td>
+                        <td>{{ cert.correo or '-' }}</td>
+                        <td>{% if cert.trabajador_id %}Personal{% elif cert.numero_resolucion %}Miembro del comité{% else %}Registro previo{% endif %}</td>
+                        <td>{{ cert.numero_resolucion or '-' }}</td>
+                        <td>{{ cert.tipo_certificado }}</td>
+                        <td class="text-nowrap">{{ cert.fecha_inicio_display }}</td>
+                        <td class="text-nowrap">{{ cert.fecha_caducidad_display }}</td>
+                        <td>
+                            {% if cert.alerta == 'VENCIDO' %}<span class="badge bg-danger">VENCIDO</span>
+                            {% elif cert.alerta == 'POR VENCER' %}<span class="badge bg-warning text-dark">POR VENCER · {{ cert.dias_restantes }} d</span>
+                            {% elif cert.alerta == 'POR INICIAR' %}<span class="badge bg-info text-dark">POR INICIAR</span>
+                            {% elif cert.alerta == 'RETIRADO' %}<span class="badge bg-secondary">RETIRADO</span>
+                            {% else %}<span class="badge bg-success">VIGENTE</span>{% endif %}
+                        </td>
+                        <td class="no-print text-nowrap">
+                            {% if cert.estado == 'VIGENTE' and usuario_tiene_permiso('tokens', 'modificar') %}
+                            <button type="button" class="btn btn-sm btn-outline-primary btn-editar-certificado"
+                                data-id="{{ cert.id }}" data-dni="{{ cert.dni }}"
+                                data-apellido-paterno="{{ cert.apellido_paterno }}"
+                                data-apellido-materno="{{ cert.apellido_materno }}"
+                                data-nombres="{{ cert.nombres }}" data-cargo="{{ cert.cargo or '' }}"
+                                data-oficina="{{ cert.oficina or '' }}" data-correo="{{ cert.correo or '' }}"
+                                data-trabajador-id="{{ cert.trabajador_id or '' }}"
+                                data-numero-resolucion="{{ cert.numero_resolucion or '' }}"
+                                data-tipo-certificado="{{ cert.tipo_certificado }}"
+                                data-fecha-inicio="{{ cert.fecha_inicio }}"
+                                data-fecha-caducidad="{{ cert.fecha_caducidad }}"
+                                title="Editar o registrar renovación">
+                                <i class="bi bi-pencil-square"></i>
+                            </button>
+                            {% endif %}
+                            {% if cert.estado == 'VIGENTE' and usuario_tiene_permiso('tokens', 'eliminar') %}
+                            <form class="d-inline" method="POST" action="{{ url_for('retirar_token', certificado_id=cert.id) }}" onsubmit="return confirm('¿Retirar este certificado? Se conservará el historial.');">
+                                <button class="btn btn-sm btn-outline-danger" type="submit" title="Retirar certificado"><i class="bi bi-archive"></i></button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not certificados %}
+                    <tr><td colspan="15" class="text-center text-muted py-4">No hay certificados para este filtro.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if usuario_tiene_permiso('tokens', 'modificar') %}
+<div class="modal fade" id="modalNuevoCertificado" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <form class="modal-content" method="POST" action="{{ url_for('nuevo_token') }}">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-key-fill me-2"></i>Registrar certificado digital</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Titular del certificado *</label>
+                    <select class="form-select js-tipo-titular" name="tipo_titular" required>
+                        <option value="PERSONAL">Personal del padrón actualizado</option>
+                        <option value="COMITE">Miembro del Comité de Gestión de Compras</option>
+                    </select>
+                </div>
+                <div class="col-md-6 js-selector-personal">
+                    <label class="form-label">Seleccionar trabajador *</label>
+                    <select class="form-select js-personal-id" name="personal_id">
+                        <option value="">Seleccione del padrón de personal</option>
+                        {% for tr in trabajadores %}
+                        <option value="{{ tr.id }}"
+                            data-dni="{{ tr.dni }}" data-nombres="{{ tr.nombres }}"
+                            data-paterno="{{ tr.apellido_paterno }}" data-materno="{{ tr.apellido_materno }}"
+                            data-cargo="{{ tr.cargo or '' }}"
+                            data-correo="{{ tr.correo_institucional or tr.correo_personal or '' }}">
+                            {{ tr.apellido_paterno }} {{ tr.apellido_materno }}, {{ tr.nombres }} — DNI {{ tr.dni }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4"><label class="form-label">DNI *</label><input class="form-control js-dni" name="dni" inputmode="numeric" pattern="[0-9]{1,30}" maxlength="30" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 30)" required></div>
+                <div class="col-md-4"><label class="form-label">Apellido paterno *</label><input class="form-control js-paterno" name="apellido_paterno" required></div>
+                <div class="col-md-4"><label class="form-label">Apellido materno *</label><input class="form-control js-materno" name="apellido_materno" required></div>
+                <div class="col-md-6"><label class="form-label">Nombres *</label><input class="form-control js-nombres" name="nombres" required></div>
+                <div class="col-md-6"><label class="form-label">Cargo / participación *</label><input class="form-control js-cargo" name="cargo" required></div>
+                <div class="col-md-6"><label class="form-label">Oficina / comité</label><input class="form-control" name="oficina"></div>
+                <div class="col-md-6"><label class="form-label">Correo</label><input class="form-control js-correo" type="email" name="correo"></div>
+                <div class="col-md-6 js-resolucion">
+                    <label class="form-label">Número de resolución *</label>
+                    <input class="form-control" name="numero_resolucion" maxlength="100">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Tipo de certificado digital *</label>
+                    <select class="form-select" name="tipo_certificado" required>
+                        <option value="TOKEN">CERTIFICADO DIGITAL TOKEN</option>
+                        <option value="PARA PC">CERTIFICADO DIGITAL PARA PC</option>
+                    </select>
+                </div>
+                <div class="col-md-6"><label class="form-label">Fecha de inicio *</label><input class="form-control" type="date" name="fecha_inicio" required></div>
+                <div class="col-md-6"><label class="form-label">Fecha de caducidad *</label><input class="form-control" type="date" name="fecha_caducidad" required></div>
+                <div class="col-12"><small class="text-muted">Los datos del personal se consultan del padrón actualizado. Para miembros del comité, ingrese sus datos y el número de resolución. Registre una nueva fila para preservar el historial de renovaciones.</small></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar certificado</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="modalEditarCertificado" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <form class="modal-content" method="POST" id="formEditarCertificado">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Editar / actualizar vigencia</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Titular del certificado *</label>
+                    <select class="form-select js-tipo-titular" name="tipo_titular" required>
+                        <option value="PERSONAL">Personal del padrón actualizado</option>
+                        <option value="COMITE">Miembro del Comité de Gestión de Compras</option>
+                    </select>
+                </div>
+                <div class="col-md-6 js-selector-personal">
+                    <label class="form-label">Seleccionar trabajador</label>
+                    <select class="form-select js-personal-id" name="personal_id">
+                        <option value="">Seleccione del padrón de personal</option>
+                        {% for tr in trabajadores %}
+                        <option value="{{ tr.id }}"
+                            data-dni="{{ tr.dni }}" data-nombres="{{ tr.nombres }}"
+                            data-paterno="{{ tr.apellido_paterno }}" data-materno="{{ tr.apellido_materno }}"
+                            data-cargo="{{ tr.cargo or '' }}"
+                            data-correo="{{ tr.correo_institucional or tr.correo_personal or '' }}">
+                            {{ tr.apellido_paterno }} {{ tr.apellido_materno }}, {{ tr.nombres }} — DNI {{ tr.dni }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4"><label class="form-label">DNI *</label><input class="form-control js-dni" name="dni" id="edit_token_dni" inputmode="numeric" pattern="[0-9]{1,30}" maxlength="30" title="Ingrese solo números" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 30)" required></div>
+                <div class="col-md-4"><label class="form-label">Apellido paterno *</label><input class="form-control js-paterno" name="apellido_paterno" id="edit_token_paterno" required></div>
+                <div class="col-md-4"><label class="form-label">Apellido materno *</label><input class="form-control js-materno" name="apellido_materno" id="edit_token_materno" required></div>
+                <div class="col-md-6"><label class="form-label">Nombres *</label><input class="form-control js-nombres" name="nombres" id="edit_token_nombres" required></div>
+                <div class="col-md-6"><label class="form-label">Cargo / participación *</label><input class="form-control js-cargo" name="cargo" id="edit_token_cargo" required></div>
+                <div class="col-md-6"><label class="form-label">Oficina / comité</label><input class="form-control" name="oficina" id="edit_token_oficina"></div>
+                <div class="col-md-6"><label class="form-label">Correo</label><input class="form-control js-correo" type="email" name="correo" id="edit_token_correo"></div>
+                <div class="col-md-6 js-resolucion">
+                    <label class="form-label">Número de resolución *</label>
+                    <input class="form-control" name="numero_resolucion" id="edit_token_resolucion" maxlength="100">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Tipo de certificado digital *</label>
+                    <select class="form-select" name="tipo_certificado" id="edit_token_tipo" required>
+                        <option value="TOKEN">CERTIFICADO DIGITAL TOKEN</option>
+                        <option value="PARA PC">CERTIFICADO DIGITAL PARA PC</option>
+                    </select>
+                </div>
+                <div class="col-md-6"><label class="form-label">Fecha de inicio *</label><input class="form-control" type="date" name="fecha_inicio" id="edit_token_inicio" required></div>
+                <div class="col-md-6"><label class="form-label">Fecha de caducidad *</label><input class="form-control" type="date" name="fecha_caducidad" id="edit_token_caducidad" required></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-warning">Guardar cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('buscarCertificado')?.addEventListener('input', function () {
+        const termino = this.value.trim().toLocaleLowerCase('es');
+        document.querySelectorAll('#tablaCertificados tbody tr[data-busqueda]').forEach(function (fila) {
+            fila.hidden = !fila.dataset.busqueda.toLocaleLowerCase('es').includes(termino);
+        });
+    });
+
+    document.querySelectorAll('.modal form').forEach(function (formulario) {
+        const titular = formulario.querySelector('.js-tipo-titular');
+        if (!titular) return;
+        const selectorPersonal = formulario.querySelector('.js-selector-personal');
+        const personal = formulario.querySelector('.js-personal-id');
+        const resolucion = formulario.querySelector('[name="numero_resolucion"]');
+        const resolucionContenedor = formulario.querySelector('.js-resolucion');
+        const camposPersonales = ['.js-dni', '.js-paterno', '.js-materno', '.js-nombres', '.js-cargo', '.js-correo'];
+        function actualizarTitular() {
+            const esPersonal = titular.value === 'PERSONAL';
+            selectorPersonal.hidden = !esPersonal;
+            resolucionContenedor.hidden = esPersonal;
+            resolucion.required = !esPersonal;
+            camposPersonales.forEach(function (selector) {
+                const campo = formulario.querySelector(selector);
+                campo.readOnly = esPersonal;
+                if (selector === '.js-cargo') campo.required = !esPersonal;
+            });
+        }
+        personal.addEventListener('change', function () {
+            const opcion = personal.selectedOptions[0];
+            if (!opcion || !opcion.value) return;
+            formulario.querySelector('.js-dni').value = opcion.dataset.dni;
+            formulario.querySelector('.js-nombres').value = opcion.dataset.nombres;
+            formulario.querySelector('.js-paterno').value = opcion.dataset.paterno;
+            formulario.querySelector('.js-materno').value = opcion.dataset.materno;
+            formulario.querySelector('.js-cargo').value = opcion.dataset.cargo;
+            formulario.querySelector('.js-correo').value = opcion.dataset.correo;
+        });
+        titular.addEventListener('change', actualizarTitular);
+        actualizarTitular();
+    });
+
+    document.querySelectorAll('.btn-editar-certificado').forEach(function (boton) {
+        boton.addEventListener('click', function () {
+            const datos = boton.dataset;
+            document.getElementById('formEditarCertificado').action = '/tokens/editar/' + datos.id;
+            document.getElementById('edit_token_dni').value = datos.dni;
+            document.getElementById('edit_token_paterno').value = datos.apellidoPaterno;
+            document.getElementById('edit_token_materno').value = datos.apellidoMaterno;
+            document.getElementById('edit_token_nombres').value = datos.nombres;
+            document.getElementById('edit_token_cargo').value = datos.cargo;
+            document.getElementById('edit_token_oficina').value = datos.oficina;
+            document.getElementById('edit_token_correo').value = datos.correo;
+            const formulario = document.getElementById('formEditarCertificado');
+            formulario.querySelector('.js-tipo-titular').value = datos.trabajadorId ? 'PERSONAL' : 'COMITE';
+            formulario.querySelector('.js-personal-id').value = datos.trabajadorId;
+            document.getElementById('edit_token_resolucion').value = datos.numeroResolucion;
+            document.getElementById('edit_token_tipo').value =
+                /PC|SOFTWARE/i.test(datos.tipoCertificado) ? 'PARA PC' : 'TOKEN';
+            document.getElementById('edit_token_inicio').value = datos.fechaInicio;
+            document.getElementById('edit_token_caducidad').value = datos.fechaCaducidad;
+            formulario.querySelector('.js-tipo-titular').dispatchEvent(new Event('change'));
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('modalEditarCertificado')).show();
+        });
+    });
+</script>
+{% endblock %}
